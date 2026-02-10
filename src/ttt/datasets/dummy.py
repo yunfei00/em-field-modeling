@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+from ttt.registry import register_dataset
+
 class DummyDataset(Dataset):
     def __init__(self, n: int, in_dim: int, out_dim: int, seed: int):
         g = torch.Generator().manual_seed(seed)
@@ -14,17 +16,18 @@ class DummyDataset(Dataset):
     def __getitem__(self, idx):
         return self.x[idx], self.y[idx]
 
-def build_dataloaders(cfg: dict):
-    bs = cfg["data"]["batch_size"]
-    in_dim = cfg["data"]["input_dim"]
-    out_dim = cfg["data"]["output_dim"]
-    train_size = cfg["data"]["train_size"]
-    val_size = cfg["data"]["val_size"]
-    seed = cfg["seed"]
+@register_dataset("dummy")
+def build_dummy_dataloaders(cfg: dict):
+    bs = int(cfg["data"]["batch_size"])
+    in_dim = int(cfg["data"]["input_dim"])
+    out_dim = int(cfg["data"]["output_dim"])
+    train_size = int(cfg["data"]["train_size"])
+    val_size = int(cfg["data"]["val_size"])
+    seed = int(cfg["seed"])
 
     train_ds = DummyDataset(train_size, in_dim, out_dim, seed=seed)
     val_ds = DummyDataset(val_size, in_dim, out_dim, seed=seed + 1)
 
-    dl_train = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=cfg["num_workers"])
-    dl_val = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=cfg["num_workers"])
+    dl_train = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=int(cfg["num_workers"]))
+    dl_val = DataLoader(val_ds, batch_size=bs, shuffle=False, num_workers=int(cfg["num_workers"]))
     return dl_train, dl_val
