@@ -7,6 +7,7 @@ from tqdm import tqdm
 from .checkpoint import save_checkpoint
 from .logging_utils import JsonlLogger
 from .metrics import batch_metrics, pick_score
+from .rng import get_rng_state, set_rng_state
 
 def pick_device(device_cfg: str):
     if device_cfg == "cpu":
@@ -15,12 +16,37 @@ def pick_device(device_cfg: str):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def _amp_objects(cfg: dict, device: torch.device):
+    """
+    Returns: (use_amp: bool, autocast_ctx, scaler_or_none)
+    AMP only enabled when device is CUDA and cfg.amp.enabled is True.
+    """
+    amp_cfg = cfg.get("amp", {}) or {}
+    enabled = bool(amp_cfg.get("enabled", False))
+    if device.type != "cuda" or not torch.cuda.is_available():
+        enabled = False
+
+    # dtype: "fp16" or "bf16" (fp16 is typical for cuda)
+    dtype_name = str(amp_cfg.get("dtype", "fp16")).lower()
+    if dtype_name in ("bf16", "bfloat16"):
+        amp_dtype = torch.bfloat16
+    else:
+        amp_dtype = torch.float16
+
+    # Prefer torch.amp APIs if available
+    try:
+        autocast = torch.amp.autocast  # torch>=2
+        GradScaler = torch.amp.GradScaler
+    except Exception:
+        autocast = torch.cuda.amp.autocast
+        GradScaler = torch.cuda.amp.GradScaler
+
+    scaler = GradScaler(enabled=enabled)
+    ctx = autocast(device_type="cuda", dtype=amp_dtype, enabled=enabled)
+    return enabled, ctx, scaler
+
 @torch.no_grad()
 def evaluate(model: nn.Module, dl, device, eps: float = 1e-12):
-    """
-    Aggregate metrics over the whole dataloader.
-    For simplicity we average batch-level metrics weighted by batch size.
-    """
     model.eval()
     total = 0
     agg_rmse_mean = 0.0
@@ -40,7 +66,6 @@ def evaluate(model: nn.Module, dl, device, eps: float = 1e-12):
         agg_rmse_mean += m["rmse_mean"] * bs
         agg_rel_mean += m["rel_mean"] * bs
 
-        # dim-wise lists
         rmse_dim = torch.tensor(m["rmse_dim"], dtype=torch.float64)
         rel_dim = torch.tensor(m["rel_dim"], dtype=torch.float64)
         rmse_dim_sum = rmse_dim if rmse_dim_sum is None else (rmse_dim_sum + rmse_dim * bs)
@@ -70,13 +95,6 @@ def train(
     run_id: str,
     resume_state: dict | None = None,
 ):
-    """
-    run_dir: runs/<exp_name>/<run_id>
-    Saves:
-      - last.pth / best.pth
-      - metrics.jsonl
-      - config snapshot is handled outside (train.py)
-    """
     device = pick_device(cfg["device"])
     model = model.to(device)
 
@@ -87,8 +105,8 @@ def train(
     )
 
     # metrics config
-    metrics_cfg = cfg.get("metrics", {})
-    track = metrics_cfg.get("track", "rmse_mean")        # scalar key in evaluate() output
+    metrics_cfg = cfg.get("metrics", {}) or {}
+    track = metrics_cfg.get("track", "rmse_mean")
     eps = float(metrics_cfg.get("eps", 1e-12))
     lower_is_better = bool(metrics_cfg.get("lower_is_better", True))
 
@@ -97,13 +115,27 @@ def train(
     best_metrics = None
     global_step = 0
 
+    # AMP objects (only effective on CUDA when enabled)
+    use_amp, autocast_ctx, scaler = _amp_objects(cfg, device)
+
+    # Resume
     if resume_state:
+        # Restore RNG first (best-effort)
+        set_rng_state(resume_state.get("rng_state"))
+
         model.load_state_dict(resume_state["model"])
         opt.load_state_dict(resume_state["optim"])
         start_epoch = int(resume_state.get("epoch", 0)) + 1
         global_step = int(resume_state.get("global_step", 0))
         best_score = float(resume_state.get("best_score", best_score))
         best_metrics = resume_state.get("best_metrics", best_metrics)
+
+        # Restore scaler
+        if scaler is not None and resume_state.get("scaler") is not None:
+            try:
+                scaler.load_state_dict(resume_state["scaler"])
+            except Exception:
+                pass
 
     metrics_path = os.path.join(run_dir, "metrics.jsonl")
     jlog = JsonlLogger(metrics_path)
@@ -126,12 +158,20 @@ def train(
             x = x.to(device)
             y = y.to(device)
 
-            pred = model(x)
-            loss = torch.mean((pred - y) ** 2)
+            # forward + loss under autocast
+            with autocast_ctx:
+                pred = model(x)
+                loss = torch.mean((pred - y) ** 2)
 
             opt.zero_grad(set_to_none=True)
-            loss.backward()
-            opt.step()
+
+            if use_amp and scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(opt)
+                scaler.update()
+            else:
+                loss.backward()
+                opt.step()
 
             global_step += 1
             running += float(loss.item()) * x.shape[0]
@@ -139,7 +179,7 @@ def train(
 
             if (step + 1) % log_every == 0:
                 avg = running / max(seen, 1)
-                pbar.set_postfix({"loss": avg})
+                pbar.set_postfix({"loss": avg, "amp": int(use_amp)})
                 jlog.log({
                     "type": "train_step",
                     "exp_name": exp_name,
@@ -147,6 +187,7 @@ def train(
                     "epoch": epoch,
                     "global_step": global_step,
                     "loss": avg,
+                    "amp": bool(use_amp),
                 })
 
         # periodic eval
@@ -156,9 +197,8 @@ def train(
             val_metrics = evaluate(model, dl_val, device, eps=eps)
             score = pick_score(val_metrics, track)
 
-        # save last
-        last_path = os.path.join(run_dir, "last.pth")
-        save_checkpoint(last_path, {
+        # checkpoint common payload
+        ckpt_payload = {
             "epoch": epoch,
             "global_step": global_step,
             "model": model.state_dict(),
@@ -170,28 +210,25 @@ def train(
             "run_id": run_id,
             "track_metric": track,
             "lower_is_better": lower_is_better,
-        })
+            "amp_enabled": bool(use_amp),
+            "scaler": (scaler.state_dict() if (scaler is not None and use_amp) else None),
+            "rng_state": get_rng_state(),
+        }
+
+        # save last
+        last_path = os.path.join(run_dir, "last.pth")
+        save_checkpoint(last_path, ckpt_payload)
 
         # save best
         if cfg["ckpt"]["save_best"] and (score is not None) and is_better(score, best_score):
             best_score = score
             best_metrics = val_metrics
+            ckpt_payload["best_score"] = best_score
+            ckpt_payload["best_metrics"] = best_metrics
             best_path = os.path.join(run_dir, "best.pth")
-            save_checkpoint(best_path, {
-                "epoch": epoch,
-                "global_step": global_step,
-                "model": model.state_dict(),
-                "optim": opt.state_dict(),
-                "best_score": best_score,
-                "best_metrics": best_metrics,
-                "cfg": cfg,
-                "exp_name": exp_name,
-                "run_id": run_id,
-                "track_metric": track,
-                "lower_is_better": lower_is_better,
-            })
+            save_checkpoint(best_path, ckpt_payload)
 
-        # epoch log (jsonl)
+        # epoch log
         jlog.log({
             "type": "epoch",
             "exp_name": exp_name,
@@ -203,11 +240,12 @@ def train(
             "track_metric": track,
             "score": score,
             "best_score": best_score,
+            "amp": bool(use_amp),
         })
 
         if val_metrics is not None:
-            print(f"[{exp_name}/{run_id}] epoch={epoch} {track}={score:.6g} best={best_score:.6g}")
+            print(f"[{exp_name}/{run_id}] epoch={epoch} {track}={score:.6g} best={best_score:.6g} amp={int(use_amp)}")
         else:
-            print(f"[{exp_name}/{run_id}] epoch={epoch} (no eval) best={best_score:.6g}")
+            print(f"[{exp_name}/{run_id}] epoch={epoch} (no eval) best={best_score:.6g} amp={int(use_amp)}")
 
     return {"best_score": best_score, "best_metrics": best_metrics, "run_dir": run_dir, "exp_name": exp_name, "run_id": run_id}
