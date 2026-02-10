@@ -28,11 +28,12 @@ python scripts/train.py --config configs/default.yaml --exp_name demo
 ```
 
 Training outputs will be written to:
-
+```bash
 runs/demo/<run_id>/
+```
 Project Structure
 
-
+```
 configs/                 # experiment configs (YAML)
 scripts/
   train.py               # training entry
@@ -60,7 +61,7 @@ config.resolved.yaml — exact configuration snapshot
 metrics.jsonl — structured training / evaluation logs
 last.pth — latest checkpoint
 best.pth — best checkpoint according to selected metric
-
+```
 
 Resume Training
 Bash
