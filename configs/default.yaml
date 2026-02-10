@@ -6,8 +6,8 @@ num_workers: 2
 data:
   name: dummy
   batch_size: 32
-  train_size: 4096
-  val_size: 1024
+  train_size: 1024
+  val_size: 256
   input_dim: 16
   output_dim: 4
 
@@ -20,7 +20,7 @@ optim:
   weight_decay: 0.0
 
 train:
-  epochs: 20
+  epochs: 3
   log_every: 50
   eval_every: 1
 
