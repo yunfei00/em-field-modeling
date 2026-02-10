@@ -37,3 +37,21 @@ metrics:
 amp:
   enabled: false    # CI / CPU 默认 false；GPU 上可改 true 或命令行 --amp
   dtype: fp16       # fp16 或 bf16（cuda 通常 fp16）
+
+scheduler:
+  name: none   # none | step | cosine | onecycle
+
+  # step:
+  step_size: 10
+  gamma: 0.5
+
+  # cosine:
+  t_max: 20
+  eta_min: 0.0
+
+  # onecycle (steps-based):
+  max_lr: 0.001
+  pct_start: 0.3
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  anneal_strategy: cos
