@@ -30,5 +30,7 @@ jobs:
           python scripts/train.py --config configs/default.yaml --resume
 
       - name: Eval best
-        run: |
-          python scripts/eval.py --config configs/default.yaml --ckpt runs/demo/best.pth
+  run: |
+    RUN_DIR=$(python scripts/find_latest_run.py runs demo)
+    echo "RUN_DIR=$RUN_DIR"
+    python scripts/eval.py --config configs/default.yaml --ckpt $RUN_DIR/best.pth
