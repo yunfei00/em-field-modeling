@@ -59,3 +59,15 @@ jobs:
           python scripts/eval.py \
             --config configs/default.yaml \
             --ckpt "$CKPT"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run_demo_${{ env.RUN_ID }}
+          path: |
+            runs/demo/${{ env.RUN_ID }}/config.resolved.yaml
+            runs/demo/${{ env.RUN_ID }}/metrics.jsonl
+            runs/demo/${{ env.RUN_ID }}/best.pth
+            runs/demo/${{ env.RUN_ID }}/last.pth
+          if-no-files-found: warn
