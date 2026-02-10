@@ -1,0 +1,30 @@
+seed: 42
+
+device: auto   # auto/cpu/cuda
+num_workers: 2
+
+data:
+  name: dummy
+  batch_size: 32
+  train_size: 4096
+  val_size: 1024
+  input_dim: 16
+  output_dim: 4
+
+model:
+  name: mlp
+  hidden_dim: 128
+
+optim:
+  lr: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  epochs: 20
+  log_every: 50
+  eval_every: 1
+
+ckpt:
+  dir: runs
+  exp_name: demo
+  save_best: true
