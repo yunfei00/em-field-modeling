@@ -1,3 +1,10 @@
+"""
+Usage:
+  python scripts/find_latest_run.py runs demo
+
+Output:
+  runs/<exp_name>/<latest_run_id>
+"""
 import os
 import sys
 
