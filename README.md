@@ -25,7 +25,7 @@ robust resume, metrics, AMP, scheduler, CI and artifacts.
 ```bash
 pip install -e .
 python scripts/train.py --config configs/default.yaml --exp_name demo
-
+```
 
 Training outputs will be written to:
 
