@@ -33,3 +33,7 @@ metrics:
   track: rmse_mean         # best判定指标：rmse_mean / rel_mean
   lower_is_better: true
   eps: 1.0e-12
+
+amp:
+  enabled: false    # CI / CPU 默认 false；GPU 上可改 true 或命令行 --amp
+  dtype: fp16       # fp16 或 bf16（cuda 通常 fp16）
