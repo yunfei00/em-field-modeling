@@ -8,6 +8,8 @@ from .checkpoint import save_checkpoint
 from .logging_utils import JsonlLogger
 from .metrics import batch_metrics, pick_score
 from .rng import get_rng_state, set_rng_state
+from .scheduler import build_scheduler
+
 
 def pick_device(device_cfg: str):
     if device_cfg == "cpu":
@@ -16,26 +18,21 @@ def pick_device(device_cfg: str):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def _amp_objects(cfg: dict, device: torch.device):
-    """
-    Returns: (use_amp: bool, autocast_ctx, scaler_or_none)
-    AMP only enabled when device is CUDA and cfg.amp.enabled is True.
-    """
     amp_cfg = cfg.get("amp", {}) or {}
     enabled = bool(amp_cfg.get("enabled", False))
     if device.type != "cuda" or not torch.cuda.is_available():
         enabled = False
 
-    # dtype: "fp16" or "bf16" (fp16 is typical for cuda)
     dtype_name = str(amp_cfg.get("dtype", "fp16")).lower()
     if dtype_name in ("bf16", "bfloat16"):
         amp_dtype = torch.bfloat16
     else:
         amp_dtype = torch.float16
 
-    # Prefer torch.amp APIs if available
     try:
-        autocast = torch.amp.autocast  # torch>=2
+        autocast = torch.amp.autocast
         GradScaler = torch.amp.GradScaler
     except Exception:
         autocast = torch.cuda.amp.autocast
@@ -44,6 +41,7 @@ def _amp_objects(cfg: dict, device: torch.device):
     scaler = GradScaler(enabled=enabled)
     ctx = autocast(device_type="cuda", dtype=amp_dtype, enabled=enabled)
     return enabled, ctx, scaler
+
 
 @torch.no_grad()
 def evaluate(model: nn.Module, dl, device, eps: float = 1e-12):
@@ -85,6 +83,12 @@ def evaluate(model: nn.Module, dl, device, eps: float = 1e-12):
         "out_dim": len(rmse_dim_avg),
     }
 
+
+def _get_lr(optimizer: torch.optim.Optimizer) -> float:
+    # assume one param group or take the first
+    return float(optimizer.param_groups[0].get("lr", 0.0))
+
+
 def train(
     cfg: dict,
     model: nn.Module,
@@ -104,6 +108,13 @@ def train(
         weight_decay=float(cfg["optim"]["weight_decay"]),
     )
 
+    # Build scheduler (may be None)
+    # For OneCycle, we need steps_per_epoch; inject if user didn't provide
+    if cfg.get("scheduler", {}) and str(cfg["scheduler"].get("name", "")).lower() == "onecycle":
+        cfg.setdefault("scheduler", {})
+        cfg["scheduler"]["steps_per_epoch"] = int(cfg["scheduler"].get("steps_per_epoch", len(dl_train)))
+    sched = build_scheduler(cfg, opt)
+
     # metrics config
     metrics_cfg = cfg.get("metrics", {}) or {}
     track = metrics_cfg.get("track", "rmse_mean")
@@ -115,12 +126,11 @@ def train(
     best_metrics = None
     global_step = 0
 
-    # AMP objects (only effective on CUDA when enabled)
+    # AMP objects
     use_amp, autocast_ctx, scaler = _amp_objects(cfg, device)
 
     # Resume
     if resume_state:
-        # Restore RNG first (best-effort)
         set_rng_state(resume_state.get("rng_state"))
 
         model.load_state_dict(resume_state["model"])
@@ -135,6 +145,14 @@ def train(
             try:
                 scaler.load_state_dict(resume_state["scaler"])
             except Exception:
+                pass
+
+        # Restore scheduler
+        if sched is not None and resume_state.get("scheduler") is not None:
+            try:
+                sched.load_state_dict(resume_state["scheduler"])
+            except Exception:
+                # best-effort
                 pass
 
     metrics_path = os.path.join(run_dir, "metrics.jsonl")
@@ -158,7 +176,6 @@ def train(
             x = x.to(device)
             y = y.to(device)
 
-            # forward + loss under autocast
             with autocast_ctx:
                 pred = model(x)
                 loss = torch.mean((pred - y) ** 2)
@@ -177,9 +194,14 @@ def train(
             running += float(loss.item()) * x.shape[0]
             seen += x.shape[0]
 
+            # Step-based scheduler (OneCycle) should step each optimizer step
+            if sched is not None and isinstance(sched, torch.optim.lr_scheduler.OneCycleLR):
+                sched.step()
+
             if (step + 1) % log_every == 0:
                 avg = running / max(seen, 1)
-                pbar.set_postfix({"loss": avg, "amp": int(use_amp)})
+                lr = _get_lr(opt)
+                pbar.set_postfix({"loss": avg, "lr": lr, "amp": int(use_amp)})
                 jlog.log({
                     "type": "train_step",
                     "exp_name": exp_name,
@@ -187,8 +209,13 @@ def train(
                     "epoch": epoch,
                     "global_step": global_step,
                     "loss": avg,
+                    "lr": lr,
                     "amp": bool(use_amp),
                 })
+
+        # Epoch-based scheduler steps here (StepLR/Cosine)
+        if sched is not None and not isinstance(sched, torch.optim.lr_scheduler.OneCycleLR):
+            sched.step()
 
         # periodic eval
         val_metrics = None
@@ -197,12 +224,14 @@ def train(
             val_metrics = evaluate(model, dl_val, device, eps=eps)
             score = pick_score(val_metrics, track)
 
-        # checkpoint common payload
+        lr_epoch = _get_lr(opt)
+
         ckpt_payload = {
             "epoch": epoch,
             "global_step": global_step,
             "model": model.state_dict(),
             "optim": opt.state_dict(),
+            "scheduler": (sched.state_dict() if sched is not None else None),
             "best_score": best_score,
             "best_metrics": best_metrics,
             "cfg": cfg,
@@ -240,12 +269,14 @@ def train(
             "track_metric": track,
             "score": score,
             "best_score": best_score,
+            "lr": lr_epoch,
+            "scheduler": (cfg.get("scheduler", {}) or {}).get("name", "none"),
             "amp": bool(use_amp),
         })
 
         if val_metrics is not None:
-            print(f"[{exp_name}/{run_id}] epoch={epoch} {track}={score:.6g} best={best_score:.6g} amp={int(use_amp)}")
+            print(f"[{exp_name}/{run_id}] epoch={epoch} {track}={score:.6g} best={best_score:.6g} lr={lr_epoch:.6g} amp={int(use_amp)}")
         else:
-            print(f"[{exp_name}/{run_id}] epoch={epoch} (no eval) best={best_score:.6g} amp={int(use_amp)}")
+            print(f"[{exp_name}/{run_id}] epoch={epoch} (no eval) best={best_score:.6g} lr={lr_epoch:.6g} amp={int(use_amp)}")
 
     return {"best_score": best_score, "best_metrics": best_metrics, "run_dir": run_dir, "exp_name": exp_name, "run_id": run_id}
