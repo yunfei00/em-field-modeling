@@ -20,6 +20,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+          pip install -e .
       - name: Smoke train (short)
         run: |
           python scripts/train.py --config configs/default.yaml
