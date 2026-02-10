@@ -34,8 +34,17 @@ jobs:
           echo "RUN_ID=$RUN_ID"
           python scripts/train.py --config configs/default.yaml --exp_name demo --resume_run_id "$RUN_ID"
 
-      - name: Eval best
+      - name: Eval best (fallback to last)
         run: |
           RUN_DIR=$(python scripts/find_latest_run.py runs demo)
           echo "RUN_DIR=$RUN_DIR"
-          python scripts/eval.py --config configs/default.yaml --ckpt "$RUN_DIR/best.pth"
+
+          if [ -f "$RUN_DIR/best.pth" ]; then
+            CKPT="$RUN_DIR/best.pth"
+          else
+            echo "best.pth not found, fallback to last.pth"
+            CKPT="$RUN_DIR/last.pth"
+          fi
+
+          echo "EVAL_CKPT=$CKPT"
+          python scripts/eval.py --config configs/default.yaml --ckpt "$CKPT"
