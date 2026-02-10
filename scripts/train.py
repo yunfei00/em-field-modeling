@@ -22,10 +22,23 @@ def main():
     ap.add_argument("--resume_run_id", default=None, help="resume from runs/<exp_name>/<resume_run_id>/last.pth")
     ap.add_argument("--resume_from", default=None, help="resume from a checkpoint path, e.g. runs/x/y/last.pth")
 
+    # AMP overrides (optional)
+    ap.add_argument("--amp", action="store_true", help="force enable AMP (CUDA only)")
+    ap.add_argument("--no-amp", action="store_true", help="force disable AMP")
+
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
     set_seed(int(cfg["seed"]))
+
+    # Ensure amp section exists
+    cfg.setdefault("amp", {})
+    if args.amp and args.no_amp:
+        raise SystemExit("Cannot set both --amp and --no-amp")
+    if args.amp:
+        cfg["amp"]["enabled"] = True
+    if args.no_amp:
+        cfg["amp"]["enabled"] = False
 
     # Decide run_dir (new run by default)
     run_dir, exp_name, run_id = resolve_run_dir(cfg, exp_name=args.exp_name, run_id=args.run_id)
@@ -49,11 +62,11 @@ def main():
 
     if ckpt_path and os.path.exists(ckpt_path):
         resume_state = load_checkpoint(ckpt_path, map_location="cpu")
-        # If resuming, keep the same exp_name/run_id (so继续写入同一个run目录)
+        # If resuming, keep the same exp_name/run_id
         exp_name = resume_state.get("exp_name", exp_name)
         run_id = resume_state.get("run_id", run_id)
         run_dir = os.path.join(cfg["ckpt"]["dir"], exp_name, run_id)
-        dump_resolved_config(cfg, run_dir)  # overwrite snapshot is ok
+        dump_resolved_config(cfg, run_dir)
         print(f"[resume] loaded: {ckpt_path}")
     elif ckpt_path:
         print(f"[resume] checkpoint not found: {ckpt_path} (start fresh)")
