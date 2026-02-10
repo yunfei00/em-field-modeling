@@ -7,6 +7,7 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,29 +23,39 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
+      - name: Decide RUN_ID
+        run: |
+          RUN_ID=$(date +%Y%m%d_%H%M%S)
+          echo "RUN_ID=$RUN_ID"
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+
       - name: Smoke train (short)
         run: |
-          python scripts/train.py --config configs/default.yaml --exp_name demo
+          python scripts/train.py \
+            --config configs/default.yaml \
+            --exp_name demo \
+            --run_id "$RUN_ID"
 
-      - name: Resume train (should find ckpt)
+      - name: Resume train (same run)
         run: |
-          RUN_DIR=$(python scripts/find_latest_run.py runs demo)
-          echo "RUN_DIR=$RUN_DIR"
-          RUN_ID=$(basename "$RUN_DIR")
-          echo "RUN_ID=$RUN_ID"
-          python scripts/train.py --config configs/default.yaml --exp_name demo --resume_run_id "$RUN_ID"
+          python scripts/train.py \
+            --config configs/default.yaml \
+            --exp_name demo \
+            --run_id "$RUN_ID" \
+            --resume
 
-      - name: Eval best (fallback to last)
+      - name: Eval (best or last)
         run: |
-          RUN_DIR=$(python scripts/find_latest_run.py runs demo)
+          RUN_DIR="runs/demo/$RUN_ID"
           echo "RUN_DIR=$RUN_DIR"
 
           if [ -f "$RUN_DIR/best.pth" ]; then
             CKPT="$RUN_DIR/best.pth"
           else
-            echo "best.pth not found, fallback to last.pth"
             CKPT="$RUN_DIR/last.pth"
           fi
 
           echo "EVAL_CKPT=$CKPT"
-          python scripts/eval.py --config configs/default.yaml --ckpt "$CKPT"
+          python scripts/eval.py \
+            --config configs/default.yaml \
+            --ckpt "$CKPT"
