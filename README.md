@@ -76,6 +76,12 @@ Each run contains:
 python scripts/train.py --config configs/default.yaml --exp_name demo --resume
 ```
 
+Resume from the **best checkpoint** and set a new learning rate:
+
+```bash
+python scripts/train.py --config configs/default.yaml --exp_name demo --resume --resume_best --lr 1e-4
+```
+
 Tip: You can pin a fixed experiment + run id in config to avoid typing `--run_id` each time:
 
 ```yaml
