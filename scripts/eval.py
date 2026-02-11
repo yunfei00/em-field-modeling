@@ -1,3 +1,5 @@
+import emfm.nf  # 触发 nf dataset / model 注册
+
 import argparse
 import yaml
 import torch
@@ -16,7 +18,7 @@ def main():
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
-    dl_train, dl_val = build_data(cfg)
+    _, dl_val = build_data(cfg)
     model = build_model(cfg)
 
     state = load_checkpoint(args.ckpt, map_location="cpu")
