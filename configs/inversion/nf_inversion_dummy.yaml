@@ -1,0 +1,42 @@
+seed: 1234
+device: cpu
+
+data:
+  name: nf_inversion_dummy
+  n_train: 512
+  n_val: 128
+
+model:
+  name: nf_unetish
+  in_ch: 4
+  out_ch: 12
+  base: 64
+  n_res: 6
+  add_xy_positional: true
+
+train:
+  epochs: 5
+  batch_size: 8
+  num_workers: 0
+  log_every: 10
+  eval_every: 1
+  save_every: 200
+  grad_clip: 0.0
+
+optim:
+  name: adamw
+  lr: 1e-3
+  weight_decay: 0.0
+
+amp:
+  enabled: false
+
+ckpt:
+  dir: runs
+  save_best: true
+  save_last: true
+  keep_last_n: 3
+
+
+loss:
+  name: mse

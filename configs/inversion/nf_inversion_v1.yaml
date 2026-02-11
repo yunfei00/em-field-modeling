@@ -1,0 +1,28 @@
+seed: 1234
+
+data:
+  name: nf_inversion_v1
+  root: /mnt/d/data/nf_dataset_v1
+  train_split: splits/nf_v1/train.txt
+  val_split: splits/nf_v1/val.txt
+
+model:
+  name: nf_unetish
+  in_ch: 4
+  out_ch: 12
+  base_ch: 64
+
+train:
+  epochs: 200
+  batch_size: 16
+  num_workers: 8
+  lr: 1e-3
+
+loss:
+  name: mse
+
+ckpt:
+  dir: runs
+
+amp:
+  enabled: true

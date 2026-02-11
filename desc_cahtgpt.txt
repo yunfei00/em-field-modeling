@@ -1,0 +1,2 @@
+使用cst训练一个11X11的场源 场源数据为x y z Hx_re Hx_im Hy_re Hy_im 其中 x和y取值范围都是-5到5 z为1 单位都是mm 频率为5G 然后讲场源数据导入cst中 cst运行完成后 导出 电场和磁场数据 电场数据格式为 x y z ex_re ex_im ey_re ey_im ez_re ez_im 磁场数据也是类似的格式 z为5 xy的范围都是-25到25 1. 这种是否可以pytorch训练 2. 训练的话 大约需要多少数据 3. 怎么搭建模型
+

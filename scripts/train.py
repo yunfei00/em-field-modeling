@@ -1,3 +1,5 @@
+import emfm.nf  # 触发 nf dataset / model 注册
+
 import argparse
 import os
 import yaml

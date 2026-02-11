@@ -1,0 +1,7 @@
+场源生成命令：
+python scripts/data_gen/gen_sources_11x11.py --out data/raw/sources_11x11 --n 10000 --seed 1234 --write_manifest
+
+环境安装依赖:
+pip install numpy pandas pyyaml tqdm
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -e .
