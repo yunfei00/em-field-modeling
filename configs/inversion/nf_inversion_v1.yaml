@@ -1,8 +1,9 @@
 seed: 1234
+device: auto
 
 data:
   name: nf_inversion_v1
-  root: /mnt/d/data/nf_dataset_v1
+  root: data/nf_dataset_v1
   train_split: splits/nf_v1/train.txt
   val_split: splits/nf_v1/val.txt
 
@@ -15,14 +16,21 @@ model:
 train:
   epochs: 200
   batch_size: 16
-  num_workers: 8
+  num_workers: 0
+  log_every: 10
+  eval_every: 1
+
+optim:
+  name: adamw
   lr: 1e-3
+  weight_decay: 0.0
 
 loss:
   name: mse
 
 ckpt:
   dir: runs
+  save_best: true
 
 amp:
   enabled: true
