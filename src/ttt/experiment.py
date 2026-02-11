@@ -15,7 +15,7 @@ def resolve_run_dir(cfg: dict, exp_name: str | None = None, run_id: str | None =
     cfg = copy.deepcopy(cfg)
     base_dir = cfg["ckpt"]["dir"]
     exp = exp_name or cfg["ckpt"].get("exp_name", "default")
-    rid = run_id or make_run_id()
+    rid = run_id or cfg["ckpt"].get("run_id") or make_run_id()
     run_dir = os.path.join(base_dir, exp, rid)
     ensure_dir(run_dir)
     return run_dir, exp, rid

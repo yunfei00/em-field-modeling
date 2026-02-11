@@ -67,6 +67,21 @@ Resume Training
 Bash
 
 python scripts/train.py --config configs/default.yaml --exp_name demo --resume
+
+Tip: You can pin a fixed experiment + run id in config to avoid typing `--run_id` each time:
+
+Yaml
+
+ckpt:
+  dir: runs
+  exp_name: fwd_v1_10w
+  run_id: stable
+
+Then always launch with:
+Bash
+
+python scripts/train.py --config <your_config>.yaml --resume
+
 Resume restores:
 model weights
 optimizer
