@@ -52,9 +52,15 @@ def main():
     ap.add_argument("--resume", action="store_true", help="resume from runs/<exp_name>/<run_id>/last.pth")
     ap.add_argument("--resume_run_id", default=None, help="resume from runs/<exp_name>/<resume_run_id>/last.pth")
     ap.add_argument("--resume_from", default=None, help="resume from a checkpoint path, e.g. runs/x/y/last.pth")
+    ap.add_argument(
+        "--resume_best",
+        action="store_true",
+        help="when using --resume/--resume_run_id, load best.pth instead of last.pth",
+    )
 
     # AMP overrides (optional)
     ap.add_argument("--amp", action="store_true", help="force enable AMP (CUDA only)")
+    ap.add_argument("--lr", type=float, default=None, help="override optim.lr in config")
     ap.add_argument("--no-amp", action="store_true", help="force disable AMP")
 
     args = ap.parse_args()
@@ -75,6 +81,9 @@ def main():
     if args.no_amp:
         cfg["amp"]["enabled"] = False
 
+    if args.lr is not None:
+        cfg.setdefault("optim", {})["lr"] = float(args.lr)
+
     # Decide run_dir (new run by default)
     run_dir, exp_name, run_id = resolve_run_dir(cfg, exp_name=exp_name, run_id=run_id)
 
@@ -88,12 +97,13 @@ def main():
     ckpt_path = None
 
     # Priority: resume_from > resume_run_id > resume flag
+    resume_ckpt_name = "best.pth" if args.resume_best else "last.pth"
     if args.resume_from:
         ckpt_path = args.resume_from
     elif args.resume_run_id:
-        ckpt_path = os.path.join(cfg["ckpt"]["dir"], exp_name, args.resume_run_id, "last.pth")
+        ckpt_path = os.path.join(cfg["ckpt"]["dir"], exp_name, args.resume_run_id, resume_ckpt_name)
     elif args.resume:
-        ckpt_path = os.path.join(run_dir, "last.pth")
+        ckpt_path = os.path.join(run_dir, resume_ckpt_name)
 
     if ckpt_path and os.path.exists(ckpt_path):
         resume_state = load_checkpoint(ckpt_path, map_location="cpu")
