@@ -11,9 +11,38 @@ from ttt.engine import train
 from ttt.checkpoint import load_checkpoint
 from ttt.experiment import resolve_run_dir, dump_resolved_config
 
+
+def _default_line_presets() -> dict:
+    return {
+        "forward": {"exp_name": "em_forward", "run_id": "main"},
+        "inverse": {"exp_name": "em_inverse", "run_id": "main"},
+        # aliases
+        "em_forward": {"exp_name": "em_forward", "run_id": "main"},
+        "em_inverse": {"exp_name": "em_inverse", "run_id": "main"},
+    }
+
+
+def apply_line_preset(cfg: dict, line_name: str | None) -> tuple[str | None, str | None]:
+    """
+    Resolve (exp_name, run_id) by a short line name.
+    Priority: ckpt.line_presets in config > built-in defaults.
+    """
+    if not line_name:
+        return None, None
+
+    presets = _default_line_presets()
+    presets.update(cfg.get("ckpt", {}).get("line_presets", {}))
+    picked = presets.get(line_name)
+    if not picked:
+        valid = ", ".join(sorted(presets.keys()))
+        raise SystemExit(f"Unknown --line '{line_name}'. Available: {valid}")
+
+    return picked.get("exp_name"), picked.get("run_id")
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/default.yaml")
+    ap.add_argument("--line", default=None, help="shortcut for exp/run, e.g. forward or inverse")
 
     # experiment identity
     ap.add_argument("--exp_name", default=None, help="experiment name under runs/<exp_name>/")
@@ -33,6 +62,10 @@ def main():
     cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
     set_seed(int(cfg["seed"]))
 
+    line_exp_name, line_run_id = apply_line_preset(cfg, args.line)
+    exp_name = args.exp_name or line_exp_name
+    run_id = args.run_id or line_run_id
+
     # Ensure amp section exists
     cfg.setdefault("amp", {})
     if args.amp and args.no_amp:
@@ -43,7 +76,7 @@ def main():
         cfg["amp"]["enabled"] = False
 
     # Decide run_dir (new run by default)
-    run_dir, exp_name, run_id = resolve_run_dir(cfg, exp_name=args.exp_name, run_id=args.run_id)
+    run_dir, exp_name, run_id = resolve_run_dir(cfg, exp_name=exp_name, run_id=run_id)
 
     # Save resolved config snapshot into run_dir
     dump_resolved_config(cfg, run_dir)

@@ -82,6 +82,30 @@ Bash
 
 python scripts/train.py --config <your_config>.yaml --resume
 
+For this EM project, you can also use a short preset line:
+Bash
+
+python scripts/train.py --config <your_config>.yaml --line forward
+python scripts/train.py --config <your_config>.yaml --line inverse
+
+Default mapping:
+- `forward` => `--exp_name em_forward --run_id main`
+- `inverse` => `--exp_name em_inverse --run_id main`
+
+You can customize these in YAML:
+Yaml
+
+ckpt:
+  line_presets:
+    forward:
+      exp_name: em_forward
+      run_id: main
+    inverse:
+      exp_name: em_inverse
+      run_id: main
+
+CLI priority remains: explicit `--exp_name/--run_id` > `--line` preset > config defaults.
+
 Resume restores:
 model weights
 optimizer
