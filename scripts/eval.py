@@ -1,6 +1,8 @@
 import emfm.nf  # 触发 nf dataset / model 注册
 
 import argparse
+from pathlib import Path
+
 import yaml
 import torch
 
@@ -13,15 +15,22 @@ from ttt.metrics import pick_score
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/default.yaml")
-    ap.add_argument("--ckpt", required=True)
+    ap.add_argument("--ckpt", required=True, help="checkpoint path, e.g. runs/<exp>/<run>/last.pth")
     ap.add_argument("--track", default=None, help="override cfg.metrics.track")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
+    with open(args.config, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    ckpt_path = Path(args.ckpt)
+    if not ckpt_path.exists():
+        raise SystemExit(f"Checkpoint not found: {ckpt_path}")
     _, dl_val = build_data(cfg)
     model = build_model(cfg)
 
-    state = load_checkpoint(args.ckpt, map_location="cpu")
+    state = load_checkpoint(str(ckpt_path), map_location="cpu")
+    if "model" not in state:
+        raise SystemExit(f"Invalid checkpoint (missing 'model' key): {ckpt_path}")
     model.load_state_dict(state["model"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
