@@ -33,6 +33,42 @@ Training outputs will be written to:
 runs/demo/<run_id>/
 ```
 
+
+## Model Inference (Single / Batch by File/Folder)
+
+Use `scripts/infer.py` to load a trained checkpoint and run inference for:
+
+- one input file (`.npy` / `.npz`)
+- or all input files under one folder (`.npy` / `.npz`)
+
+### 1) Infer one file
+
+```bash
+python scripts/infer.py \
+  --config configs/default.yaml \
+  --ckpt runs/demo/<run_id>/best.pth \
+  --input data/sample.npy \
+  --input_shape 16 \
+  --out outputs/sample_pred.npy
+```
+
+### 2) Infer all files in one folder
+
+```bash
+python scripts/infer.py \
+  --config configs/default.yaml \
+  --ckpt runs/demo/<run_id>/best.pth \
+  --input data/infer_inputs/ \
+  --input_shape 16 \
+  --out outputs/preds/
+```
+
+- when `--input` is a folder, the script scans all `.npy/.npz` files and infers each file
+- `--out` should be a folder in that case, and results are saved as `<input_stem>_pred.npy`
+- if input is `.npz`, key `x` is preferred; otherwise the first array is used
+
+The script prints input/output tensor shapes and previews the first few prediction rows for each file.
+
 ## Project Structure
 
 ```text
