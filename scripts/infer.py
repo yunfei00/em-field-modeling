@@ -7,7 +7,7 @@ import torch
 import yaml
 
 from ttt.checkpoint import load_checkpoint
-from ttt.infer import collect_input_files, infer_files, make_preview, parse_shape_text, save_outputs
+from ttt.infer import collect_input_files, infer_files, make_preview, parse_shape_text, save_nf_target_csv, save_outputs
 from ttt.models import build_model
 
 
@@ -21,8 +21,8 @@ def main():
         "--out",
         default=None,
         help=(
-            "optional output path. If --input is file, --out should be .npy/.txt file. "
-            "If --input is folder, --out should be an output folder."
+            "optional output path. If model output is NF [N,12,51,51], --out should be an output folder for target_E/target_H CSVs. "
+            "Otherwise if --input is file, --out should be .npy/.txt file; folder input requires output folder."
         ),
     )
     args = ap.parse_args()
@@ -53,8 +53,6 @@ def main():
     out_path = Path(args.out) if args.out else None
     if is_input_dir and out_path and out_path.suffix:
         raise SystemExit("When --input is a folder, --out must be a folder path (not a file).")
-    if (not is_input_dir) and out_path and (not out_path.suffix):
-        raise SystemExit("When --input is a file, --out must be a file path ending with .npy/.txt")
 
     for idx, (src_file, x, y) in enumerate(results):
         print(f"[{idx+1}/{len(results)}] file={src_file} input_shape={tuple(x.shape)} output_shape={tuple(y.shape)}")
@@ -64,9 +62,20 @@ def main():
         if out_path is None:
             continue
 
+        is_nf = (y.ndim == 4 and tuple(y.shape[1:]) == (12, 51, 51))
+        if is_nf:
+            if out_path.suffix:
+                raise SystemExit("For NF output [N,12,51,51], --out must be a folder path (to write target_E.csv/target_H.csv).")
+            save_dir = (out_path / src_file.stem) if is_input_dir else out_path
+            saved = save_nf_target_csv(y, save_dir)
+            print("saved=" + ", ".join(str(s) for s in saved))
+            continue
+
         if is_input_dir:
             save_file = out_path / f"{src_file.stem}_pred.npy"
         else:
+            if not out_path.suffix:
+                raise SystemExit("When --input is a file for non-NF output, --out must be a file path ending with .npy/.txt")
             save_file = out_path
         save_outputs(y, save_file)
         print(f"saved={save_file}")

@@ -35,8 +35,8 @@ def collect_input_files(input_path: str | Path) -> list[Path]:
     return files
 
 
-def _load_nf_source_csv(path: Path) -> np.ndarray:
-    """Load training-format near-field source CSV to [4, 11, 11]."""
+def _load_nf_source_csv(path: Path, input_shape: tuple[int, ...] | None = None) -> np.ndarray:
+    """Load near-field source CSV to [4, H, W], aligned with training loader."""
     df = pd.read_csv(path)
     expected_cols = ("Hx_re", "Hx_im", "Hy_re", "Hy_im")
     missing_cols = [k for k in expected_cols if k not in df.columns]
@@ -45,13 +45,41 @@ def _load_nf_source_csv(path: Path) -> np.ndarray:
             f"CSV file {path} is missing columns: {missing_cols}. "
             f"Expected training format columns: {list(expected_cols)}"
         )
-    expected_len = 11 * 11
-    if len(df) != expected_len:
+
+    # Prefer explicit x/y coordinates when available.
+    if {"x", "y"}.issubset(df.columns):
+        xs = np.sort(df["x"].unique())
+        ys = np.sort(df["y"].unique())
+        expected_len = len(xs) * len(ys)
+        if len(df) != expected_len:
+            raise ValueError(
+                f"CSV file {path} has {len(df)} rows, expected {expected_len} rows from x/y grid"
+            )
+        ordered = df.sort_values(["y", "x"], kind="mergesort")
+        arr = np.stack(
+            [ordered[k].to_numpy(dtype=np.float32).reshape(len(ys), len(xs)) for k in expected_cols],
+            axis=0,
+        )
+    else:
+        # Legacy fallback without x/y: infer square grid.
+        side = int(round(np.sqrt(len(df))))
+        if side * side != len(df):
+            raise ValueError(
+                f"CSV file {path} has {len(df)} rows and no x/y columns; cannot infer 2D grid"
+            )
+        arr = np.stack([df[k].values.reshape(side, side) for k in expected_cols], axis=0).astype(np.float32)
+
+    # For NF inversion models, training uses [4, 11, 11].
+    if arr.shape != (4, 11, 11):
         raise ValueError(
-            f"CSV file {path} has {len(df)} rows, expected {expected_len} rows for 11x11 source input"
+            f"CSV file {path} parsed shape {arr.shape}, expected (4, 11, 11) to match training/inference model input"
         )
 
-    arr = np.stack([df[k].values.reshape(11, 11) for k in expected_cols], axis=0).astype(np.float32)
+    if input_shape is not None and tuple(input_shape) != (4, 11, 11):
+        raise ValueError(
+            f"For CSV near-field source input, expected input_shape=(4, 11, 11), got {input_shape}"
+        )
+
     return arr
 
 
@@ -76,7 +104,7 @@ def load_input_file(path: str | Path, input_shape: tuple[int, ...] | None = None
     elif p.suffix.lower() == ".npz":
         arr = _pick_npz_array(np.load(p))
     elif p.suffix.lower() == ".csv":
-        arr = _load_nf_source_csv(p)
+        arr = _load_nf_source_csv(p, input_shape=input_shape)
     else:
         raise ValueError(f"Unsupported input file: {p}")
 
@@ -99,8 +127,12 @@ def load_input_file(path: str | Path, input_shape: tuple[int, ...] | None = None
                 f"Ndim mismatch in {p}: got ndim={arr.ndim}, expected {len(input_shape)} or {len(input_shape) + 1}"
             )
     else:
-        # no explicit shape: 1D is treated as one sample; >=2D is treated as already batched
+        # no explicit shape:
+        # - 1D is treated as one sample
+        # - CSV near-field source [4,11,11] is one sample and should be promoted to [1,4,11,11]
         if arr.ndim == 1:
+            arr = np.expand_dims(arr, axis=0)
+        elif p.suffix.lower() == ".csv" and arr.ndim == 3:
             arr = np.expand_dims(arr, axis=0)
 
     return torch.from_numpy(arr)
@@ -131,6 +163,59 @@ def infer_files(
         results.append((file, x, y))
     return results
 
+
+
+def _make_xy_grid(x_min: int, x_max: int, y_min: int, y_max: int, z: int) -> pd.DataFrame:
+    rows = []
+    for y in range(y_min, y_max + 1):
+        for x in range(x_min, x_max + 1):
+            rows.append({"x": x, "y": y, "z": z})
+    return pd.DataFrame(rows)
+
+
+def save_nf_target_csv(outputs: torch.Tensor, out_dir: str | Path) -> list[Path]:
+    """Save NF inversion outputs to training-style target_E.csv/target_H.csv files.
+
+    Expected output shape: [N, 12, 51, 51].
+    """
+    p = Path(out_dir)
+    p.mkdir(parents=True, exist_ok=True)
+
+    arr = outputs.detach().cpu().numpy()
+    if arr.ndim != 4 or tuple(arr.shape[1:]) != (12, 51, 51):
+        raise ValueError(f"NF CSV export expects outputs shape [N,12,51,51], got {tuple(arr.shape)}")
+
+    flat = arr.reshape(arr.shape[0], 12, -1)
+    grid = _make_xy_grid(-25, 25, -25, 25, z=5)
+
+    saved: list[Path] = []
+    for i in range(arr.shape[0]):
+        sample_dir = p if arr.shape[0] == 1 else (p / f"sample_{i:04d}")
+        sample_dir.mkdir(parents=True, exist_ok=True)
+
+        e_df = grid.copy()
+        e_df["Ex_re"] = flat[i, 0]
+        e_df["Ex_im"] = flat[i, 1]
+        e_df["Ey_re"] = flat[i, 2]
+        e_df["Ey_im"] = flat[i, 3]
+        e_df["Ez_re"] = flat[i, 4]
+        e_df["Ez_im"] = flat[i, 5]
+
+        h_df = grid.copy()
+        h_df["Hx_re"] = flat[i, 6]
+        h_df["Hx_im"] = flat[i, 7]
+        h_df["Hy_re"] = flat[i, 8]
+        h_df["Hy_im"] = flat[i, 9]
+        h_df["Hz_re"] = flat[i, 10]
+        h_df["Hz_im"] = flat[i, 11]
+
+        e_path = sample_dir / "target_E.csv"
+        h_path = sample_dir / "target_H.csv"
+        e_df.to_csv(e_path, index=False)
+        h_df.to_csv(h_path, index=False)
+        saved.extend([e_path, h_path])
+
+    return saved
 
 def save_outputs(outputs: torch.Tensor, out_path: str | Path) -> None:
     p = Path(out_path)
