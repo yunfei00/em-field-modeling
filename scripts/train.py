@@ -61,6 +61,16 @@ def main():
     # AMP overrides (optional)
     ap.add_argument("--amp", action="store_true", help="force enable AMP (CUDA only)")
     ap.add_argument("--lr", type=float, default=None, help="override optim.lr in config")
+    ap.add_argument(
+        "--resume_new_lr",
+        action="store_true",
+        help="when resuming, keep checkpoint model/optimizer states but overwrite optimizer lr with current config/--lr",
+    )
+    ap.add_argument(
+        "--resume_reset_scheduler",
+        action="store_true",
+        help="when resuming, do not load scheduler state from checkpoint (rebuild from current config)",
+    )
     ap.add_argument("--no-amp", action="store_true", help="force disable AMP")
 
     args = ap.parse_args()
@@ -83,6 +93,14 @@ def main():
 
     if args.lr is not None:
         cfg.setdefault("optim", {})["lr"] = float(args.lr)
+
+    # By default, when user explicitly passes --lr for resume training,
+    # optimizer lr should follow latest CLI/config instead of checkpoint value.
+    if args.resume_new_lr or args.lr is not None:
+        cfg.setdefault("optim", {})["resume_new_lr"] = True
+
+    if args.resume_reset_scheduler:
+        cfg.setdefault("scheduler", {})["resume_reset"] = True
 
     # Decide run_dir (new run by default)
     run_dir, exp_name, run_id = resolve_run_dir(cfg, exp_name=exp_name, run_id=run_id)

@@ -2,6 +2,8 @@
 
 A **production-ready PyTorch training template** for regression and multi-output tasks. It is designed for **long-term reuse** with experiment management, plugin registry, robust resume, metrics, AMP, scheduler, CI, and artifacts.
 
+- 中文文档（Chinese README）: `README.zh-CN.md`
+
 ---
 
 ## What is this for?
@@ -118,6 +120,20 @@ Resume from the **best checkpoint** and set a new learning rate:
 python scripts/train.py --config configs/default.yaml --exp_name demo --resume --resume_best --lr 1e-4
 ```
 
+By default, when `--lr` is provided during resume, the optimizer state is restored from checkpoint **but LR is overwritten** by the latest config/CLI value.
+
+If you want to force this behavior explicitly (even without `--lr`), use:
+
+```bash
+python scripts/train.py --config configs/default.yaml --exp_name demo --resume --resume_new_lr
+```
+
+If you also want to ignore old scheduler progress and rebuild scheduler state from current config:
+
+```bash
+python scripts/train.py --config configs/default.yaml --exp_name demo --resume --resume_reset_scheduler
+```
+
 Tip: You can pin a fixed experiment + run id in config to avoid typing `--run_id` each time:
 
 ```yaml
@@ -163,8 +179,8 @@ CLI priority remains: explicit `--exp_name/--run_id` > `--line` preset > config 
 Resume restores:
 
 - model weights
-- optimizer
-- scheduler
+- optimizer (optionally with LR overridden by latest config via `--resume_new_lr` / `--lr`)
+- scheduler (can be skipped via `--resume_reset_scheduler`)
 - AMP scaler
 - RNG state
 
