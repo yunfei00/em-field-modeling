@@ -187,10 +187,30 @@ def save_ckpt(path: Path, model, optim, epoch: int, best_val: float):
 
 
 def load_ckpt(path: Path, model, optim):
+    """
+    Load checkpoint with compatibility for both:
+    - inner forward trainer format (`best_val`)
+    - outer unified trainer format (`best_score`)
+    """
     ckpt = torch.load(path, map_location="cpu")
     model.load_state_dict(ckpt["model"])
     optim.load_state_dict(ckpt["optim"])
-    return ckpt["epoch"], ckpt.get("best_val", 1e30)
+
+    epoch = int(ckpt.get("epoch", 0))
+    best_val = ckpt.get("best_val")
+    if best_val is None:
+        best_val = ckpt.get("best_score", 1e30)
+    return epoch, float(best_val)
+
+
+def resolve_resume_ckpt(run_dir: Path) -> Path:
+    """Prefer inner checkpoint path, but fall back to unified trainer path."""
+    inner_last = run_dir / "checkpoints" / "last.pth"
+    if inner_last.exists():
+        return inner_last
+
+    outer_last = run_dir / "last.pth"
+    return outer_last
 
 
 def main():
@@ -304,9 +324,14 @@ def main():
     start_epoch = 0
     best_val = 1e30
     last_ckpt = run_dir / "checkpoints" / "last.pth"
-    if resume and last_ckpt.exists():
-        start_epoch, best_val = load_ckpt(last_ckpt, model, optim)
-        start_epoch += 1
+    if resume:
+        resume_ckpt = resolve_resume_ckpt(run_dir)
+        if resume_ckpt.exists():
+            start_epoch, best_val = load_ckpt(resume_ckpt, model, optim)
+            start_epoch += 1
+            print(f"[resume] loaded checkpoint: {resume_ckpt}")
+        else:
+            print(f"[resume] checkpoint not found: {resume_ckpt} (start fresh)")
 
     log_path = run_dir / "artifacts" / "metrics.jsonl"
 
