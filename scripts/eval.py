@@ -11,6 +11,7 @@ from ttt.models import build_model
 from ttt.engine import evaluate
 from ttt.checkpoint import load_checkpoint
 from ttt.metrics import pick_score
+from ttt.config_compat import normalize_legacy_nf_data_keys
 
 def main():
     ap = argparse.ArgumentParser()
@@ -21,6 +22,8 @@ def main():
 
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+
+    normalize_legacy_nf_data_keys(cfg)
 
     ckpt_path = Path(args.ckpt)
     if not ckpt_path.exists():

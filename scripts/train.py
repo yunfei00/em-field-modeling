@@ -10,6 +10,7 @@ from ttt.models import build_model
 from ttt.engine import train
 from ttt.checkpoint import load_checkpoint
 from ttt.experiment import resolve_run_dir, dump_resolved_config
+from ttt.config_compat import normalize_legacy_nf_data_keys
 
 
 def _default_line_presets() -> dict:
@@ -98,6 +99,7 @@ def main():
 
     cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
     normalize_legacy_config(cfg)
+    normalize_legacy_nf_data_keys(cfg)
     set_seed(int(cfg["seed"]))
 
     line_exp_name, line_run_id = apply_line_preset(cfg, args.line)
