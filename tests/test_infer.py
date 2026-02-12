@@ -38,6 +38,24 @@ def test_load_input_file_single_and_batch(tmp_path: Path):
     assert tuple(xb.shape) == (3, 4)
 
 
+def test_load_input_file_csv_training_format(tmp_path: Path):
+    csv_path = tmp_path / "source_H.csv"
+    base = np.arange(121, dtype=np.float32)
+    import pandas as pd
+
+    pd.DataFrame(
+        {
+            "Hx_re": base,
+            "Hx_im": base + 1,
+            "Hy_re": base + 2,
+            "Hy_im": base + 3,
+        }
+    ).to_csv(csv_path, index=False)
+
+    x = load_input_file(csv_path, input_shape=(4, 11, 11))
+    assert tuple(x.shape) == (1, 4, 11, 11)
+
+
 def test_run_inference_batch_and_single():
     model = torch.nn.Linear(4, 2)
     device = torch.device("cpu")
