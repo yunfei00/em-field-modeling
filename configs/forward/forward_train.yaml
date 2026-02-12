@@ -1,0 +1,21 @@
+data_root: data/em
+train_ids: data/splits/train_ids.txt
+val_ids: data/splits/val_ids.txt
+run_dir: runs/forward_norm
+
+epochs: 50
+batch_size: 16
+lr: 1.0e-3
+seed: 42
+
+normalize_y: true
+norm_max_batches: 128
+norm_eps: 1.0e-6
+
+# legacy optional alternative
+auto_channel_weight: false
+auto_weight_max_batches: 64
+e_weight_multiplier: 1.0
+h_weight_multiplier: 1.0
+
+resume: false

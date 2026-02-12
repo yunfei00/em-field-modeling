@@ -115,7 +115,7 @@ runs/<exp>/<run_id>/
 
 当电场通道量级远大于磁场通道时，直接用原始 MSE 往往会更偏向优化 `E`，导致 `H` 拟合不足。
 
-建议优先使用 `src/emfm/tasks/forward/train.py` 的目标归一化：
+建议优先使用 `src/emfm/tasks/forward/train.py` 的目标归一化（请用 `python -m` 方式执行，避免直接运行文件时相对导入问题）：
 
 ```bash
 python -m emfm.tasks.forward.train \
@@ -124,6 +124,38 @@ python -m emfm.tasks.forward.train \
   --val_ids <val_ids.txt> \
   --run_dir runs/forward_norm \
   --normalize_y --norm_max_batches 128
+```
+
+也支持通过 YAML 加载参数（CLI 参数优先级更高）：
+
+```bash
+python -m emfm.tasks.forward.train --config configs/forward/forward_train.yaml
+```
+
+`configs/forward/forward_train.yaml` 示例：
+
+```yaml
+data_root: data/em
+train_ids: data/splits/train_ids.txt
+val_ids: data/splits/val_ids.txt
+run_dir: runs/forward_norm
+
+epochs: 50
+batch_size: 16
+lr: 1.0e-3
+seed: 42
+
+normalize_y: true
+norm_max_batches: 128
+norm_eps: 1.0e-6
+
+# 可选兼容旧方案
+auto_channel_weight: false
+auto_weight_max_batches: 64
+e_weight_multiplier: 1.0
+h_weight_multiplier: 1.0
+
+resume: false
 ```
 
 参数说明：
