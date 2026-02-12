@@ -135,6 +135,13 @@ def train(
 
         model.load_state_dict(resume_state["model"])
         opt.load_state_dict(resume_state["optim"])
+
+        # Optional: keep checkpoint optimizer moments, but overwrite lr by latest config.
+        if bool(cfg.get("optim", {}).get("resume_new_lr", False)):
+            new_lr = float(cfg["optim"]["lr"])
+            for g in opt.param_groups:
+                g["lr"] = new_lr
+
         start_epoch = int(resume_state.get("epoch", 0)) + 1
         global_step = int(resume_state.get("global_step", 0))
         best_score = float(resume_state.get("best_score", best_score))
@@ -148,7 +155,8 @@ def train(
                 pass
 
         # Restore scheduler
-        if sched is not None and resume_state.get("scheduler") is not None:
+        resume_reset_sched = bool(cfg.get("scheduler", {}).get("resume_reset", False))
+        if (not resume_reset_sched) and sched is not None and resume_state.get("scheduler") is not None:
             try:
                 sched.load_state_dict(resume_state["scheduler"])
             except Exception:
