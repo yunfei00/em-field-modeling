@@ -1,4 +1,4 @@
-from emfm.tasks.forward.train import _cfg_get, parse_ids
+from emfm.tasks.forward.train import _cfg_get, parse_ids, resolve_resume_ckpt
 
 
 def test_forward_cfg_nested_layout_preferred():
@@ -71,3 +71,23 @@ def test_parse_ids_supports_csv_with_id_column(tmp_path):
     split_csv.write_text("id,weight\n000001,1\n000002,1\n", encoding="utf-8")
 
     assert parse_ids(str(split_csv)) == ["000001", "000002"]
+
+
+def test_resolve_resume_ckpt_prefers_inner_layout(tmp_path):
+    run_dir = tmp_path / "run"
+    inner = run_dir / "checkpoints" / "last.pth"
+    outer = run_dir / "last.pth"
+    inner.parent.mkdir(parents=True)
+    inner.write_bytes(b"x")
+    outer.write_bytes(b"y")
+
+    assert resolve_resume_ckpt(run_dir) == inner
+
+
+def test_resolve_resume_ckpt_falls_back_to_outer_layout(tmp_path):
+    run_dir = tmp_path / "run"
+    outer = run_dir / "last.pth"
+    run_dir.mkdir(parents=True)
+    outer.write_bytes(b"y")
+
+    assert resolve_resume_ckpt(run_dir) == outer
