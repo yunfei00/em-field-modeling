@@ -56,7 +56,7 @@ def test_load_input_file_csv_training_format(tmp_path: Path):
     assert tuple(x.shape) == (1, 4, 11, 11)
 
 
-def test_load_input_file_csv_defaults_to_2d(tmp_path: Path):
+def test_load_input_file_csv_defaults_to_training_3d(tmp_path: Path):
     csv_path = tmp_path / "source_H.csv"
     import pandas as pd
 
@@ -75,7 +75,7 @@ def test_load_input_file_csv_defaults_to_2d(tmp_path: Path):
     pd.DataFrame(rows).to_csv(csv_path, index=False)
 
     x = load_input_file(csv_path)
-    assert tuple(x.shape) == (121, 4)
+    assert tuple(x.shape) == (1, 4, 11, 11)
 
 
 def test_load_input_file_csv_1d_and_2d_input_shape(tmp_path: Path):

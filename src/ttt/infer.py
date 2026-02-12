@@ -40,8 +40,8 @@ def _load_nf_source_csv(path: Path, input_shape: tuple[int, ...] | None = None) 
 
     Returns one of:
     - [P*4] when `input_shape` is 1D
-    - [P, 4] when `input_shape` is 2D (or when `input_shape` is omitted)
-    - [4, H, W] when `input_shape` is 3D
+    - [P, 4] when `input_shape` is 2D
+    - [4, H, W] when `input_shape` is 3D (or when `input_shape` is omitted)
     """
     df = pd.read_csv(path)
     expected_cols = ("Hx_re", "Hx_im", "Hy_re", "Hy_im")
@@ -54,9 +54,14 @@ def _load_nf_source_csv(path: Path, input_shape: tuple[int, ...] | None = None) 
 
     values_2d = df[list(expected_cols)].to_numpy(dtype=np.float32)
 
-    # Default to 2D [points, channels] to avoid forcing a 3D tensor shape.
+    # Default to training shape [4, H, W] so model input is [B,4,11,11] after batching.
     if input_shape is None:
-        return values_2d
+        side = int(round(np.sqrt(len(df))))
+        if side * side != len(df):
+            raise ValueError(
+                f"CSV file {path} has {len(df)} rows; cannot infer square grid for default 3D input"
+            )
+        return np.stack([df[k].values.reshape(side, side) for k in expected_cols], axis=0).astype(np.float32)
 
     if len(input_shape) == 1:
         return values_2d.reshape(-1)
@@ -136,8 +141,8 @@ def load_input_file(path: str | Path, input_shape: tuple[int, ...] | None = None
                 f"Ndim mismatch in {p}: got ndim={arr.ndim}, expected {len(input_shape)} or {len(input_shape) + 1}"
             )
     else:
-        # no explicit shape: 1D is treated as one sample; >=2D is treated as already batched
-        if arr.ndim == 1:
+        # no explicit shape: [D] and [C,H,W] are treated as one sample.
+        if arr.ndim in {1, 3}:
             arr = np.expand_dims(arr, axis=0)
 
     return torch.from_numpy(arr)
