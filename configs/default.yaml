@@ -27,6 +27,13 @@ train:
 ckpt:
   dir: runs
   exp_name: demo
+  line_presets:
+    forward:
+      exp_name: em_forward
+      run_id: main
+    inverse:
+      exp_name: em_inverse
+      run_id: main
   save_best: true
 
 metrics:
