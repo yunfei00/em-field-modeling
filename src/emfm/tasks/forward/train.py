@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, json
+import argparse, csv, json
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
@@ -42,9 +42,9 @@ def _cfg_get(cfg: dict, key: str, default=None):
         return cfg.get(key, default)
 
     nested_map = {
-        "data_root": ("data", "data_root"),
-        "train_ids": ("data", "train_ids"),
-        "val_ids": ("data", "val_ids"),
+        "data_root": (("data", "root"), ("data", "data_root")),
+        "train_ids": (("data", "train_split"), ("data", "train_ids")),
+        "val_ids": (("data", "val_split"), ("data", "val_ids")),
         "run_dir": ("ckpt", "run_dir"),
         "epochs": ("train", "epochs"),
         "batch_size": ("train", "batch_size"),
@@ -60,16 +60,24 @@ def _cfg_get(cfg: dict, key: str, default=None):
         "h_weight_multiplier": ("loss", "h_weight_multiplier"),
     }
 
-    path = nested_map.get(key)
-    if not path:
+    paths = nested_map.get(key)
+    if not paths:
         return default
 
-    cur = cfg
-    for p in path:
-        if not isinstance(cur, dict) or p not in cur:
-            return default
-        cur = cur[p]
-    return cur
+    if isinstance(paths[0], str):
+        paths = (paths,)
+
+    for path in paths:
+        cur = cfg
+        missing = False
+        for p in path:
+            if not isinstance(cur, dict) or p not in cur:
+                missing = True
+                break
+            cur = cur[p]
+        if not missing:
+            return cur
+    return default
 
 def build_channel_weights(
     dl_tr: DataLoader,
@@ -152,7 +160,20 @@ def normalize_targets(pred: torch.Tensor, y: torch.Tensor, y_mean: torch.Tensor,
 
 
 def parse_ids(txt: str) -> list[str]:
-    return [line.strip() for line in Path(txt).read_text(encoding="utf-8").splitlines() if line.strip()]
+    path = Path(txt)
+    if path.suffix.lower() != ".csv":
+        return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames:
+            for key in ("id", "case_id", "sid", "sample_id"):
+                if key in reader.fieldnames:
+                    return [row[key].strip() for row in reader if row.get(key, "").strip()]
+
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        return [row[0].strip() for row in reader if row and row[0].strip()]
 
 
 def save_ckpt(path: Path, model, optim, epoch: int, best_val: float):
@@ -176,8 +197,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None, help="optional YAML config for this task")
     ap.add_argument("--data_root", default=None)
+    ap.add_argument("--root", default=None)
     ap.add_argument("--train_ids", default=None)
+    ap.add_argument("--train_split", default=None)
     ap.add_argument("--val_ids", default=None)
+    ap.add_argument("--val_split", default=None)
     ap.add_argument("--run_dir", default=None)
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--batch_size", type=int, default=None)
@@ -201,9 +225,9 @@ def main():
     if args.config:
         cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
 
-    data_root = args.data_root or _cfg_get(cfg, "data_root")
-    train_ids = args.train_ids or _cfg_get(cfg, "train_ids")
-    val_ids = args.val_ids or _cfg_get(cfg, "val_ids")
+    data_root = args.data_root or args.root or _cfg_get(cfg, "data_root")
+    train_ids = args.train_ids or args.train_split or _cfg_get(cfg, "train_ids")
+    val_ids = args.val_ids or args.val_split or _cfg_get(cfg, "val_ids")
     run_dir_str = args.run_dir or _cfg_get(cfg, "run_dir", "runs/forward_baseline")
     epochs = args.epochs if args.epochs is not None else int(_cfg_get(cfg, "epochs", 50))
     batch_size = args.batch_size if args.batch_size is not None else int(_cfg_get(cfg, "batch_size", 16))
