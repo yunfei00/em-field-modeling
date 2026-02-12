@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from .io import load_npz_sample
+from .io import load_npz_sample, load_csv_case_sample
 
 @dataclass
 class ForwardSample:
@@ -22,9 +22,14 @@ class ForwardDataset(Dataset):
 
     def __getitem__(self, idx: int) -> ForwardSample:
         sid = self.ids[idx]
-        # sid can be "00000001" -> file "00000001.npz"
-        path = self.root / f"{sid}.npz"
-        x, y, meta = load_npz_sample(path)
+        # Prefer npz layout first: <root>/<sid>.npz
+        npz_path = self.root / f"{sid}.npz"
+        if npz_path.exists():
+            x, y, meta = load_npz_sample(npz_path)
+        else:
+            # Fallback to csv case layout: <root>/cases/<sid>/*.csv
+            case_dir = self.root / "cases" / sid
+            x, y, meta = load_csv_case_sample(case_dir)
 
         x_t = torch.from_numpy(np.ascontiguousarray(x))  # [Cin,11,11]
         y_t = torch.from_numpy(np.ascontiguousarray(y))  # [Cout,51,51]
