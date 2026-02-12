@@ -3,6 +3,7 @@ import argparse, csv, json
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 import yaml
 from emfm.utils.seed import set_seed
 from emfm.data.dataset import ForwardDataset, collate_forward_samples
@@ -398,7 +399,12 @@ def main():
     for epoch in range(start_epoch, epochs):
         model.train()
         tr_loss = 0.0
-        for batch in dl_tr:
+        tr_bar = tqdm(
+            dl_tr,
+            desc=f"Epoch {epoch + 1}/{epochs} [train]",
+            leave=True,
+        )
+        for batch_idx, batch in enumerate(tr_bar, start=1):
             x = batch.x.to(device, non_blocking=True)
             y = batch.y.to(device, non_blocking=True)
             pred = model(x)
@@ -412,13 +418,20 @@ def main():
             optim.step()
             tr_loss += loss.item()
 
+            tr_bar.set_postfix({"loss": f"{(tr_loss / batch_idx):.4e}"})
+
         tr_loss /= max(1, len(dl_tr))
 
         model.eval()
         va_loss = 0.0
         last_rmse = None
         with torch.no_grad():
-            for batch in dl_va:
+            va_bar = tqdm(
+                dl_va,
+                desc=f"Epoch {epoch + 1}/{epochs} [val]",
+                leave=False,
+            )
+            for batch_idx, batch in enumerate(va_bar, start=1):
                 x = batch.x.to(device, non_blocking=True)
                 y = batch.y.to(device, non_blocking=True)
                 pred = model(x)
@@ -429,6 +442,7 @@ def main():
                 loss = loss_fn(pred_loss, y_loss)
                 va_loss += loss.item()
                 last_rmse = rmse_per_channel(pred, y)
+                va_bar.set_postfix({"loss": f"{(va_loss / batch_idx):.4e}"})
         va_loss /= max(1, len(dl_va))
 
         is_best = va_loss < best_val
