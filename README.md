@@ -208,7 +208,7 @@ Resume restores:
 
 When electric-field channels are much larger than magnetic-field channels, raw MSE may focus on `E` and underfit `H`.
 
-Use `src/emfm/tasks/forward/train.py` with **target normalization** (recommended):
+Use `src/emfm/tasks/forward/train.py` with **target normalization** (recommended). Run it with `python -m` to avoid direct-file relative import issues:
 
 ```bash
 python -m emfm.tasks.forward.train \
@@ -217,6 +217,38 @@ python -m emfm.tasks.forward.train \
   --val_ids <val_ids.txt> \
   --run_dir runs/forward_norm \
   --normalize_y --norm_max_batches 128
+```
+
+It also supports YAML-based arguments (CLI flags override YAML values):
+
+```bash
+python -m emfm.tasks.forward.train --config configs/forward/forward_train.yaml
+```
+
+Example `configs/forward/forward_train.yaml`:
+
+```yaml
+data_root: data/em
+train_ids: data/splits/train_ids.txt
+val_ids: data/splits/val_ids.txt
+run_dir: runs/forward_norm
+
+epochs: 50
+batch_size: 16
+lr: 1.0e-3
+seed: 42
+
+normalize_y: true
+norm_max_batches: 128
+norm_eps: 1.0e-6
+
+# legacy optional alternative
+auto_channel_weight: false
+auto_weight_max_batches: 64
+e_weight_multiplier: 1.0
+h_weight_multiplier: 1.0
+
+resume: false
 ```
 
 Options:

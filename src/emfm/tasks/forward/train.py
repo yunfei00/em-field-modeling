@@ -3,11 +3,35 @@ import argparse, json
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
+import yaml
 from emfm.utils.seed import set_seed
 from emfm.data.dataset import ForwardDataset
 from emfm.models.forward_unet import ForwardUNetLite
-from .losses import WeightedMSELoss
-from .metrics import rmse_per_channel
+from emfm.tasks.forward.losses import WeightedMSELoss
+from emfm.tasks.forward.metrics import rmse_per_channel
+
+
+def _as_int(cfg: dict, key: str, default: int) -> int:
+    return int(cfg.get(key, default))
+
+
+def _as_float(cfg: dict, key: str, default: float) -> float:
+    return float(cfg.get(key, default))
+
+
+def _as_bool(cfg: dict, key: str, default: bool) -> bool:
+    v = cfg.get(key, default)
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in {"1", "true", "yes", "y", "on"}:
+            return True
+        if s in {"0", "false", "no", "n", "off"}:
+            return False
+    raise ValueError(f"Invalid boolean value for {key}: {v!r}")
 
 
 def build_channel_weights(
@@ -113,53 +137,87 @@ def load_ckpt(path: Path, model, optim):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_root", required=True)
-    ap.add_argument("--train_ids", required=True)
-    ap.add_argument("--val_ids", required=True)
-    ap.add_argument("--run_dir", default="runs/forward_baseline")
-    ap.add_argument("--epochs", type=int, default=50)
-    ap.add_argument("--batch_size", type=int, default=16)
-    ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--config", default=None, help="optional YAML config for this task")
+    ap.add_argument("--data_root", default=None)
+    ap.add_argument("--train_ids", default=None)
+    ap.add_argument("--val_ids", default=None)
+    ap.add_argument("--run_dir", default=None)
+    ap.add_argument("--epochs", type=int, default=None)
+    ap.add_argument("--batch_size", type=int, default=None)
+    ap.add_argument("--lr", type=float, default=None)
+    ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--resume", action="store_true")
 
     # Legacy loss re-weighting option.
     ap.add_argument("--auto_channel_weight", action="store_true")
-    ap.add_argument("--auto_weight_max_batches", type=int, default=64)
-    ap.add_argument("--e_weight_multiplier", type=float, default=1.0)
-    ap.add_argument("--h_weight_multiplier", type=float, default=1.0)
+    ap.add_argument("--auto_weight_max_batches", type=int, default=None)
+    ap.add_argument("--e_weight_multiplier", type=float, default=None)
+    ap.add_argument("--h_weight_multiplier", type=float, default=None)
 
     # Recommended explicit target normalization.
     ap.add_argument("--normalize_y", action="store_true")
-    ap.add_argument("--norm_max_batches", type=int, default=64)
-    ap.add_argument("--norm_eps", type=float, default=1e-6)
+    ap.add_argument("--norm_max_batches", type=int, default=None)
+    ap.add_argument("--norm_eps", type=float, default=None)
     args = ap.parse_args()
 
-    set_seed(args.seed)
+    cfg = {}
+    if args.config:
+        cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
+
+    data_root = args.data_root or cfg.get("data_root")
+    train_ids = args.train_ids or cfg.get("train_ids")
+    val_ids = args.val_ids or cfg.get("val_ids")
+    run_dir_str = args.run_dir or cfg.get("run_dir", "runs/forward_baseline")
+    epochs = args.epochs if args.epochs is not None else _as_int(cfg, "epochs", 50)
+    batch_size = args.batch_size if args.batch_size is not None else _as_int(cfg, "batch_size", 16)
+    lr = args.lr if args.lr is not None else _as_float(cfg, "lr", 1e-3)
+    seed = args.seed if args.seed is not None else _as_int(cfg, "seed", 42)
+    auto_weight_max_batches = (
+        args.auto_weight_max_batches
+        if args.auto_weight_max_batches is not None
+        else _as_int(cfg, "auto_weight_max_batches", 64)
+    )
+    e_weight_multiplier = (
+        args.e_weight_multiplier if args.e_weight_multiplier is not None else _as_float(cfg, "e_weight_multiplier", 1.0)
+    )
+    h_weight_multiplier = (
+        args.h_weight_multiplier if args.h_weight_multiplier is not None else _as_float(cfg, "h_weight_multiplier", 1.0)
+    )
+    norm_max_batches = args.norm_max_batches if args.norm_max_batches is not None else _as_int(cfg, "norm_max_batches", 64)
+    norm_eps = args.norm_eps if args.norm_eps is not None else _as_float(cfg, "norm_eps", 1e-6)
+    normalize_y = args.normalize_y or _as_bool(cfg, "normalize_y", False)
+    auto_channel_weight = args.auto_channel_weight or _as_bool(cfg, "auto_channel_weight", False)
+    resume = args.resume or _as_bool(cfg, "resume", False)
+
+    missing = [k for k, v in (("data_root", data_root), ("train_ids", train_ids), ("val_ids", val_ids)) if not v]
+    if missing:
+        raise SystemExit(f"Missing required argument(s): {', '.join(missing)}. Provide them via CLI or --config YAML.")
+
+    set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    run_dir = Path(args.run_dir)
+    run_dir = Path(run_dir_str)
     (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
     (run_dir / "artifacts").mkdir(parents=True, exist_ok=True)
 
-    train_ids = parse_ids(args.train_ids)
-    val_ids = parse_ids(args.val_ids)
+    train_ids = parse_ids(train_ids)
+    val_ids = parse_ids(val_ids)
 
-    ds_tr = ForwardDataset(args.data_root, train_ids)
-    ds_va = ForwardDataset(args.data_root, val_ids)
-    dl_tr = DataLoader(ds_tr, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    dl_va = DataLoader(ds_va, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    ds_tr = ForwardDataset(data_root, train_ids)
+    ds_va = ForwardDataset(data_root, val_ids)
+    dl_tr = DataLoader(ds_tr, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    dl_va = DataLoader(ds_va, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = ForwardUNetLite(cin=4, cout=12).to(device)
 
     y_mean = None
     y_std = None
-    if args.normalize_y:
+    if normalize_y:
         y_mean, y_std = estimate_target_norm_stats(
             dl_tr,
             device,
-            max_batches=args.norm_max_batches,
-            eps=args.norm_eps,
+            max_batches=norm_max_batches,
+            eps=norm_eps,
         )
         if y_mean is None or y_std is None:
             print("[init] failed to estimate y normalization stats, fallback to raw loss")
@@ -168,23 +226,23 @@ def main():
             print(f"[init] y_std: {y_std.detach().cpu().tolist()}")
 
     channel_weights = None
-    if args.auto_channel_weight:
+    if auto_channel_weight:
         channel_weights = build_channel_weights(
             dl_tr,
             device,
-            max_batches=args.auto_weight_max_batches,
-            e_multiplier=args.e_weight_multiplier,
-            h_multiplier=args.h_weight_multiplier,
+            max_batches=auto_weight_max_batches,
+            e_multiplier=e_weight_multiplier,
+            h_multiplier=h_weight_multiplier,
         )
         print(f"[init] auto channel weights: {channel_weights}")
 
     loss_fn = WeightedMSELoss(weights=channel_weights)
-    optim = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optim = torch.optim.AdamW(model.parameters(), lr=lr)
 
     start_epoch = 0
     best_val = 1e30
     last_ckpt = run_dir / "checkpoints" / "last.pth"
-    if args.resume and last_ckpt.exists():
+    if resume and last_ckpt.exists():
         start_epoch, best_val = load_ckpt(last_ckpt, model, optim)
         start_epoch += 1
 
@@ -195,7 +253,28 @@ def main():
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
     # store resolved config-ish info
-    (run_dir / "artifacts" / "run_args.json").write_text(json.dumps(vars(args), ensure_ascii=False, indent=2), encoding="utf-8")
+    resolved_args = {
+        "config": args.config,
+        "data_root": data_root,
+        "train_ids": train_ids,
+        "val_ids": val_ids,
+        "run_dir": run_dir_str,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "lr": lr,
+        "seed": seed,
+        "resume": resume,
+        "auto_channel_weight": auto_channel_weight,
+        "auto_weight_max_batches": auto_weight_max_batches,
+        "e_weight_multiplier": e_weight_multiplier,
+        "h_weight_multiplier": h_weight_multiplier,
+        "normalize_y": normalize_y,
+        "norm_max_batches": norm_max_batches,
+        "norm_eps": norm_eps,
+    }
+    (run_dir / "artifacts" / "run_args.json").write_text(
+        json.dumps(resolved_args, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     if channel_weights is not None:
         (run_dir / "artifacts" / "channel_weights.json").write_text(
             json.dumps(channel_weights, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -206,8 +285,8 @@ def main():
                 {
                     "mean": y_mean.detach().cpu().tolist(),
                     "std": y_std.detach().cpu().tolist(),
-                    "eps": args.norm_eps,
-                    "max_batches": args.norm_max_batches,
+                    "eps": norm_eps,
+                    "max_batches": norm_max_batches,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -215,7 +294,7 @@ def main():
             encoding="utf-8",
         )
 
-    for epoch in range(start_epoch, args.epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         tr_loss = 0.0
         for batch in dl_tr:
