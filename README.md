@@ -71,6 +71,25 @@ python scripts/infer.py \
 
 The script prints input/output tensor shapes and previews the first few prediction rows for each file.
 
+### 3) Export NF training-format target CSVs (`target_E.csv` + `target_H.csv`)
+
+```bash
+python scripts/infer.py \
+  --config configs/default.yaml \
+  --ckpt runs/demo/<run_id>/best.pth \
+  --input data/source_H.csv \
+  --input_shape 4,11,11 \
+  --out outputs/case_0001/ \
+  --out_format nf_target_csv
+```
+
+- writes `target_E.csv` and `target_H.csv`
+- CSV schema matches training targets:
+  - `target_E.csv`: `x,y,z,Ex_re,Ex_im,Ey_re,Ey_im,Ez_re,Ez_im`
+  - `target_H.csv`: `x,y,z,Hx_re,Hx_im,Hy_re,Hy_im,Hz_re,Hz_im`
+- coordinate grid is `x,y in [-25, 25]`, `z=5`
+
+
 ## Project Structure
 
 ```text

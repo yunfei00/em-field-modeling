@@ -174,6 +174,76 @@ def infer_files(
     return results
 
 
+def _make_target_grid_51() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    axis = np.arange(-25, 26, dtype=np.int32)
+    xx, yy = np.meshgrid(axis, axis)
+    zz = np.full_like(xx, 5)
+    return xx, yy, zz
+
+
+def save_outputs_as_nf_target_csv(outputs: torch.Tensor, out_dir: str | Path) -> list[tuple[Path, Path]]:
+    """Save model outputs as training-format near-field target CSV files.
+
+    Expected output shape is [B, 12, 51, 51], channel order:
+    (Ex_re, Ex_im, Ey_re, Ey_im, Ez_re, Ez_im, Hx_re, Hx_im, Hy_re, Hy_im, Hz_re, Hz_im)
+    """
+    arr = outputs.detach().cpu().numpy()
+    if arr.ndim != 4 or arr.shape[1:] != (12, 51, 51):
+        raise ValueError(
+            "save_outputs_as_nf_target_csv expects outputs shape [B,12,51,51], "
+            f"got {tuple(arr.shape)}"
+        )
+
+    out_root = Path(out_dir)
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    xx, yy, zz = _make_target_grid_51()
+    flat_x = xx.reshape(-1)
+    flat_y = yy.reshape(-1)
+    flat_z = zz.reshape(-1)
+
+    saved_paths: list[tuple[Path, Path]] = []
+    for i in range(arr.shape[0]):
+        case_dir = out_root if arr.shape[0] == 1 else out_root / f"sample_{i:03d}"
+        case_dir.mkdir(parents=True, exist_ok=True)
+
+        sample = arr[i]
+        df_e = pd.DataFrame(
+            {
+                "x": flat_x,
+                "y": flat_y,
+                "z": flat_z,
+                "Ex_re": sample[0].reshape(-1),
+                "Ex_im": sample[1].reshape(-1),
+                "Ey_re": sample[2].reshape(-1),
+                "Ey_im": sample[3].reshape(-1),
+                "Ez_re": sample[4].reshape(-1),
+                "Ez_im": sample[5].reshape(-1),
+            }
+        )
+        df_h = pd.DataFrame(
+            {
+                "x": flat_x,
+                "y": flat_y,
+                "z": flat_z,
+                "Hx_re": sample[6].reshape(-1),
+                "Hx_im": sample[7].reshape(-1),
+                "Hy_re": sample[8].reshape(-1),
+                "Hy_im": sample[9].reshape(-1),
+                "Hz_re": sample[10].reshape(-1),
+                "Hz_im": sample[11].reshape(-1),
+            }
+        )
+
+        e_path = case_dir / "target_E.csv"
+        h_path = case_dir / "target_H.csv"
+        df_e.to_csv(e_path, index=False)
+        df_h.to_csv(h_path, index=False)
+        saved_paths.append((e_path, h_path))
+
+    return saved_paths
+
+
 def save_outputs(outputs: torch.Tensor, out_path: str | Path) -> None:
     p = Path(out_path)
     p.parent.mkdir(parents=True, exist_ok=True)

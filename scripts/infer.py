@@ -7,7 +7,14 @@ import torch
 import yaml
 
 from ttt.checkpoint import load_checkpoint
-from ttt.infer import collect_input_files, infer_files, make_preview, parse_shape_text, save_outputs
+from ttt.infer import (
+    collect_input_files,
+    infer_files,
+    make_preview,
+    parse_shape_text,
+    save_outputs,
+    save_outputs_as_nf_target_csv,
+)
 from ttt.models import build_model
 
 
@@ -21,9 +28,15 @@ def main():
         "--out",
         default=None,
         help=(
-            "optional output path. If --input is file, --out should be .npy/.txt file. "
+            "optional output path. If --input is file, --out should be .npy/.txt file (or folder with --out_format nf_target_csv). "
             "If --input is folder, --out should be an output folder."
         ),
+    )
+    ap.add_argument(
+        "--out_format",
+        default="tensor",
+        choices=["tensor", "nf_target_csv"],
+        help="output format: tensor(.npy/.txt) or near-field target csv files(target_E.csv + target_H.csv)",
     )
     args = ap.parse_args()
 
@@ -51,10 +64,14 @@ def main():
 
     is_input_dir = input_path.is_dir()
     out_path = Path(args.out) if args.out else None
-    if is_input_dir and out_path and out_path.suffix:
-        raise SystemExit("When --input is a folder, --out must be a folder path (not a file).")
-    if (not is_input_dir) and out_path and (not out_path.suffix):
-        raise SystemExit("When --input is a file, --out must be a file path ending with .npy/.txt")
+    if args.out_format == "tensor":
+        if is_input_dir and out_path and out_path.suffix:
+            raise SystemExit("When --input is a folder, --out must be a folder path (not a file).")
+        if (not is_input_dir) and out_path and (not out_path.suffix):
+            raise SystemExit("When --input is a file, --out must be a file path ending with .npy/.txt")
+    else:
+        if out_path is not None and out_path.suffix:
+            raise SystemExit("With --out_format nf_target_csv, --out must be a folder path.")
 
     for idx, (src_file, x, y) in enumerate(results):
         print(f"[{idx+1}/{len(results)}] file={src_file} input_shape={tuple(x.shape)} output_shape={tuple(y.shape)}")
@@ -64,12 +81,22 @@ def main():
         if out_path is None:
             continue
 
-        if is_input_dir:
-            save_file = out_path / f"{src_file.stem}_pred.npy"
+        if args.out_format == "nf_target_csv":
+            if is_input_dir:
+                save_dir = out_path / src_file.stem
+            else:
+                save_dir = out_path
+            saved_pairs = save_outputs_as_nf_target_csv(y, save_dir)
+            for e_path, h_path in saved_pairs:
+                print(f"saved={e_path}")
+                print(f"saved={h_path}")
         else:
-            save_file = out_path
-        save_outputs(y, save_file)
-        print(f"saved={save_file}")
+            if is_input_dir:
+                save_file = out_path / f"{src_file.stem}_pred.npy"
+            else:
+                save_file = out_path
+            save_outputs(y, save_file)
+            print(f"saved={save_file}")
 
 
 if __name__ == "__main__":

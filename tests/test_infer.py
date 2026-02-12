@@ -3,7 +3,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ttt.infer import collect_input_files, load_input_file, parse_shape_text, run_inference
+from ttt.infer import (
+    collect_input_files,
+    load_input_file,
+    parse_shape_text,
+    run_inference,
+    save_outputs_as_nf_target_csv,
+)
 
 
 def test_parse_shape_text():
@@ -115,3 +121,33 @@ def test_run_inference_batch_and_single():
 
     assert tuple(y1.shape) == (1, 2)
     assert tuple(y2.shape) == (5, 2)
+
+
+def test_save_outputs_as_nf_target_csv(tmp_path: Path):
+    y = torch.arange(12 * 51 * 51, dtype=torch.float32).reshape(1, 12, 51, 51)
+
+    saved = save_outputs_as_nf_target_csv(y, tmp_path)
+    assert len(saved) == 1
+    e_path, h_path = saved[0]
+    assert e_path.name == "target_E.csv"
+    assert h_path.name == "target_H.csv"
+
+    import pandas as pd
+
+    df_e = pd.read_csv(e_path)
+    df_h = pd.read_csv(h_path)
+
+    assert list(df_e.columns) == [
+        "x", "y", "z", "Ex_re", "Ex_im", "Ey_re", "Ey_im", "Ez_re", "Ez_im"
+    ]
+    assert list(df_h.columns) == [
+        "x", "y", "z", "Hx_re", "Hx_im", "Hy_re", "Hy_im", "Hz_re", "Hz_im"
+    ]
+    assert len(df_e) == 51 * 51
+    assert len(df_h) == 51 * 51
+    assert df_e["x"].min() == -25
+    assert df_e["x"].max() == 25
+    assert df_e["y"].min() == -25
+    assert df_e["y"].max() == 25
+    assert df_e["z"].nunique() == 1
+    assert df_e["z"].iloc[0] == 5
