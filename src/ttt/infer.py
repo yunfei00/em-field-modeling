@@ -35,8 +35,14 @@ def collect_input_files(input_path: str | Path) -> list[Path]:
     return files
 
 
-def _load_nf_source_csv(path: Path) -> np.ndarray:
-    """Load training-format near-field source CSV to [4, 11, 11]."""
+def _load_nf_source_csv(path: Path, input_shape: tuple[int, ...] | None = None) -> np.ndarray:
+    """Load near-field source CSV.
+
+    Returns one of:
+    - [P*4] when `input_shape` is 1D
+    - [P, 4] when `input_shape` is 2D (or when `input_shape` is omitted)
+    - [4, H, W] when `input_shape` is 3D
+    """
     df = pd.read_csv(path)
     expected_cols = ("Hx_re", "Hx_im", "Hy_re", "Hy_im")
     missing_cols = [k for k in expected_cols if k not in df.columns]
@@ -45,14 +51,45 @@ def _load_nf_source_csv(path: Path) -> np.ndarray:
             f"CSV file {path} is missing columns: {missing_cols}. "
             f"Expected training format columns: {list(expected_cols)}"
         )
-    expected_len = 11 * 11
-    if len(df) != expected_len:
-        raise ValueError(
-            f"CSV file {path} has {len(df)} rows, expected {expected_len} rows for 11x11 source input"
-        )
 
-    arr = np.stack([df[k].values.reshape(11, 11) for k in expected_cols], axis=0).astype(np.float32)
-    return arr
+    values_2d = df[list(expected_cols)].to_numpy(dtype=np.float32)
+
+    # Default to 2D [points, channels] to avoid forcing a 3D tensor shape.
+    if input_shape is None:
+        return values_2d
+
+    if len(input_shape) == 1:
+        return values_2d.reshape(-1)
+
+    if len(input_shape) == 2:
+        return values_2d
+
+    if len(input_shape) != 3:
+        raise ValueError(f"Unsupported input_shape rank for CSV {path}: {input_shape}")
+
+    # 3D shape requested: build [4, H, W] using x/y coordinates when available.
+    if {"x", "y"}.issubset(df.columns):
+        xs = np.sort(df["x"].unique())
+        ys = np.sort(df["y"].unique())
+        expected_len = len(xs) * len(ys)
+        if len(df) != expected_len:
+            raise ValueError(
+                f"CSV file {path} has {len(df)} rows, expected {expected_len} rows from x/y grid"
+            )
+        ordered = df.sort_values(["y", "x"], kind="mergesort")
+        arr = np.stack(
+            [ordered[k].to_numpy(dtype=np.float32).reshape(len(ys), len(xs)) for k in expected_cols],
+            axis=0,
+        )
+        return arr
+
+    # Fallback for legacy CSVs without x/y: infer square grid.
+    side = int(round(np.sqrt(len(df))))
+    if side * side != len(df):
+        raise ValueError(
+            f"CSV file {path} has {len(df)} rows and no x/y columns; cannot infer 2D grid for 3D input"
+        )
+    return np.stack([df[k].values.reshape(side, side) for k in expected_cols], axis=0).astype(np.float32)
 
 
 def _pick_npz_array(npz_obj: np.lib.npyio.NpzFile) -> np.ndarray:
@@ -76,7 +113,7 @@ def load_input_file(path: str | Path, input_shape: tuple[int, ...] | None = None
     elif p.suffix.lower() == ".npz":
         arr = _pick_npz_array(np.load(p))
     elif p.suffix.lower() == ".csv":
-        arr = _load_nf_source_csv(p)
+        arr = _load_nf_source_csv(p, input_shape=input_shape)
     else:
         raise ValueError(f"Unsupported input file: {p}")
 
