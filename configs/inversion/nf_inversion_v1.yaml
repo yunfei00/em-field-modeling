@@ -19,11 +19,7 @@ train:
   num_workers: 0
   log_every: 10
   eval_every: 1
-
-optim:
-  name: adamw
   lr: 1e-3
-  weight_decay: 0.0
 
 loss:
   name: mse

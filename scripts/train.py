@@ -39,6 +39,27 @@ def apply_line_preset(cfg: dict, line_name: str | None) -> tuple[str | None, str
 
     return picked.get("exp_name"), picked.get("run_id")
 
+
+def normalize_legacy_config(cfg: dict) -> None:
+    """
+    Backward-compatible normalization for older YAML layouts.
+
+    Legacy inversion configs used `train.lr` (and optionally `train.weight_decay`)
+    instead of an `optim` block. Keep accepting that format so users can continue
+    editing existing YAML files.
+    """
+    tcfg = cfg.get("train", {})
+    ocfg = cfg.setdefault("optim", {})
+
+    if "lr" not in ocfg and "lr" in tcfg:
+        ocfg["lr"] = float(tcfg["lr"])
+    if "weight_decay" not in ocfg and "weight_decay" in tcfg:
+        ocfg["weight_decay"] = float(tcfg["weight_decay"])
+
+    ocfg.setdefault("name", "adamw")
+    ocfg.setdefault("lr", 1e-3)
+    ocfg.setdefault("weight_decay", 0.0)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/default.yaml")
@@ -76,6 +97,7 @@ def main():
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
+    normalize_legacy_config(cfg)
     set_seed(int(cfg["seed"]))
 
     line_exp_name, line_run_id = apply_line_preset(cfg, args.line)
