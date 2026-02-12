@@ -203,6 +203,36 @@ Resume restores:
 - AMP scaler
 - RNG state
 
+
+## EM Forward Training: E/H Scale Rebalancing
+
+When electric-field channels are much larger than magnetic-field channels, raw MSE may focus on `E` and underfit `H`.
+
+Use `src/emfm/tasks/forward/train.py` with **target normalization** (recommended):
+
+```bash
+python -m emfm.tasks.forward.train \
+  --data_root <data_root> \
+  --train_ids <train_ids.txt> \
+  --val_ids <val_ids.txt> \
+  --run_dir runs/forward_norm \
+  --normalize_y --norm_max_batches 128
+```
+
+Options:
+
+- `--normalize_y`: estimate per-channel `mean/std` on training targets and compute loss in normalized space.
+- `--norm_max_batches`: number of batches used to estimate stats.
+- `--norm_eps`: numerical floor for std/variance clamp.
+
+Artifacts:
+
+- `artifacts/y_norm_stats.json`: saved normalization stats for reproducibility.
+
+Legacy alternative (still supported):
+
+- `--auto_channel_weight` with `--h_weight_multiplier` / `--e_weight_multiplier` for inverse-variance channel weighting.
+
 ## Registry (Plugin System)
 
 This template uses a registry-based plugin system. New models or datasets can be added without modifying core training code.

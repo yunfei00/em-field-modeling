@@ -107,3 +107,33 @@ runs/<exp>/<run_id>/
 ## 说明
 
 英文完整说明请看 `README.md`。
+
+
+---
+
+## EM 正向任务：E/H 量级不平衡建议
+
+当电场通道量级远大于磁场通道时，直接用原始 MSE 往往会更偏向优化 `E`，导致 `H` 拟合不足。
+
+建议优先使用 `src/emfm/tasks/forward/train.py` 的目标归一化：
+
+```bash
+python -m emfm.tasks.forward.train \
+  --data_root <data_root> \
+  --train_ids <train_ids.txt> \
+  --val_ids <val_ids.txt> \
+  --run_dir runs/forward_norm \
+  --normalize_y --norm_max_batches 128
+```
+
+参数说明：
+
+- `--normalize_y`：按通道估计训练集 `mean/std`，在归一化空间计算 loss。
+- `--norm_max_batches`：统计量估计使用的 batch 数。
+- `--norm_eps`：方差/标准差下限，避免数值问题。
+
+产物：
+
+- `artifacts/y_norm_stats.json`：保存归一化统计量，便于复现实验。
+
+兼容保留旧方案：`--auto_channel_weight`（含 `--h_weight_multiplier` / `--e_weight_multiplier`）。
