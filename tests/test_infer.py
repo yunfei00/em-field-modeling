@@ -56,6 +56,53 @@ def test_load_input_file_csv_training_format(tmp_path: Path):
     assert tuple(x.shape) == (1, 4, 11, 11)
 
 
+def test_load_input_file_csv_defaults_to_2d(tmp_path: Path):
+    csv_path = tmp_path / "source_H.csv"
+    import pandas as pd
+
+    rows = []
+    for y in range(-5, 6):
+        for x in range(-5, 6):
+            rows.append({
+                "x": x,
+                "y": y,
+                "z": 1,
+                "Hx_re": float(x + y),
+                "Hx_im": float(x - y),
+                "Hy_re": float(x * y),
+                "Hy_im": float(x * x + y * y),
+            })
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+
+    x = load_input_file(csv_path)
+    assert tuple(x.shape) == (121, 4)
+
+
+def test_load_input_file_csv_1d_and_2d_input_shape(tmp_path: Path):
+    csv_path = tmp_path / "source_H.csv"
+    import pandas as pd
+
+    rows = []
+    for y in range(-5, 6):
+        for x in range(-5, 6):
+            rows.append({
+                "x": x,
+                "y": y,
+                "z": 1,
+                "Hx_re": float(x + y),
+                "Hx_im": float(x - y),
+                "Hy_re": float(x * y),
+                "Hy_im": float(x * x + y * y),
+            })
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+
+    x1 = load_input_file(csv_path, input_shape=(484,))
+    x2 = load_input_file(csv_path, input_shape=(121, 4))
+
+    assert tuple(x1.shape) == (1, 484)
+    assert tuple(x2.shape) == (1, 121, 4)
+
+
 def test_run_inference_batch_and_single():
     model = torch.nn.Linear(4, 2)
     device = torch.device("cpu")
