@@ -1,5 +1,6 @@
 import os
 import math
+import time
 import torch
 from torch import nn
 from tqdm import tqdm
@@ -89,6 +90,15 @@ def _get_lr(optimizer: torch.optim.Optimizer) -> float:
     return float(optimizer.param_groups[0].get("lr", 0.0))
 
 
+def _format_seconds(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
 def train(
     cfg: dict,
     model: nn.Module,
@@ -175,10 +185,12 @@ def train(
 
     for epoch in range(start_epoch, total_epochs):
         model.train()
+        epoch_start = time.perf_counter()
         pbar = tqdm(dl_train, desc=f"[{exp_name}/{run_id}] epoch {epoch}", leave=False)
 
         running = 0.0
         seen = 0
+        total_steps = len(dl_train)
 
         for step, (x, y) in enumerate(pbar):
             x = x.to(device)
@@ -209,7 +221,14 @@ def train(
             if (step + 1) % log_every == 0:
                 avg = running / max(seen, 1)
                 lr = _get_lr(opt)
+                elapsed = time.perf_counter() - epoch_start
+                step_time = elapsed / max(step + 1, 1)
+                eta = (total_steps - (step + 1)) * step_time
                 pbar.set_postfix({"loss": avg, "lr": lr, "amp": int(use_amp)})
+                pbar.write(
+                    f"[{exp_name}/{run_id}] epoch={epoch} step={step + 1}/{total_steps} "
+                    f"loss={avg:.6g} lr={lr:.6g} elapsed={_format_seconds(elapsed)} eta={_format_seconds(eta)}"
+                )
                 jlog.log({
                     "type": "train_step",
                     "exp_name": exp_name,
@@ -283,8 +302,16 @@ def train(
         })
 
         if val_metrics is not None:
-            print(f"[{exp_name}/{run_id}] epoch={epoch} {track}={score:.6g} best={best_score:.6g} lr={lr_epoch:.6g} amp={int(use_amp)}")
+            elapsed_epoch = _format_seconds(time.perf_counter() - epoch_start)
+            print(
+                f"[{exp_name}/{run_id}] epoch={epoch} {track}={score:.6g} "
+                f"best={best_score:.6g} lr={lr_epoch:.6g} amp={int(use_amp)} elapsed={elapsed_epoch}"
+            )
         else:
-            print(f"[{exp_name}/{run_id}] epoch={epoch} (no eval) best={best_score:.6g} lr={lr_epoch:.6g} amp={int(use_amp)}")
+            elapsed_epoch = _format_seconds(time.perf_counter() - epoch_start)
+            print(
+                f"[{exp_name}/{run_id}] epoch={epoch} (no eval) "
+                f"best={best_score:.6g} lr={lr_epoch:.6g} amp={int(use_amp)} elapsed={elapsed_epoch}"
+            )
 
     return {"best_score": best_score, "best_metrics": best_metrics, "run_dir": run_dir, "exp_name": exp_name, "run_id": run_id}
