@@ -1,4 +1,4 @@
-from emfm.tasks.forward.train import _cfg_get
+from emfm.tasks.forward.train import _cfg_get, parse_ids
 
 
 def test_forward_cfg_nested_layout_preferred():
@@ -50,3 +50,24 @@ def test_forward_cfg_flat_layout_still_supported():
     assert _cfg_get(cfg, "lr") == 1e-3
     assert _cfg_get(cfg, "normalize_y") is False
     assert _cfg_get(cfg, "run_dir") == "runs/forward_norm"
+
+
+def test_forward_cfg_nested_new_data_keys_supported():
+    cfg = {
+        "data": {
+            "root": "data/em_v2",
+            "train_split": "splits/train.csv",
+            "val_split": "splits/val.csv",
+        }
+    }
+
+    assert _cfg_get(cfg, "data_root") == "data/em_v2"
+    assert _cfg_get(cfg, "train_ids") == "splits/train.csv"
+    assert _cfg_get(cfg, "val_ids") == "splits/val.csv"
+
+
+def test_parse_ids_supports_csv_with_id_column(tmp_path):
+    split_csv = tmp_path / "train_split.csv"
+    split_csv.write_text("id,weight\n000001,1\n000002,1\n", encoding="utf-8")
+
+    assert parse_ids(str(split_csv)) == ["000001", "000002"]
