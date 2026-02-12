@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
+import pandas as pd
 import torch
 
 
@@ -28,10 +29,30 @@ def collect_input_files(input_path: str | Path) -> list[Path]:
     if p.is_file():
         files = [p]
     else:
-        files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() in {".npy", ".npz"}])
+        files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() in {".npy", ".npz", ".csv"}])
         if not files:
-            raise ValueError(f"No .npy/.npz files found in folder: {p}")
+            raise ValueError(f"No .npy/.npz/.csv files found in folder: {p}")
     return files
+
+
+def _load_nf_source_csv(path: Path) -> np.ndarray:
+    """Load training-format near-field source CSV to [4, 11, 11]."""
+    df = pd.read_csv(path)
+    expected_cols = ("Hx_re", "Hx_im", "Hy_re", "Hy_im")
+    missing_cols = [k for k in expected_cols if k not in df.columns]
+    if missing_cols:
+        raise ValueError(
+            f"CSV file {path} is missing columns: {missing_cols}. "
+            f"Expected training format columns: {list(expected_cols)}"
+        )
+    expected_len = 11 * 11
+    if len(df) != expected_len:
+        raise ValueError(
+            f"CSV file {path} has {len(df)} rows, expected {expected_len} rows for 11x11 source input"
+        )
+
+    arr = np.stack([df[k].values.reshape(11, 11) for k in expected_cols], axis=0).astype(np.float32)
+    return arr
 
 
 def _pick_npz_array(npz_obj: np.lib.npyio.NpzFile) -> np.ndarray:
@@ -45,7 +66,7 @@ def _pick_npz_array(npz_obj: np.lib.npyio.NpzFile) -> np.ndarray:
 def load_input_file(path: str | Path, input_shape: tuple[int, ...] | None = None) -> torch.Tensor:
     """Load one input file into tensor [N, ...].
 
-    Supports `.npy` and `.npz`.
+    Supports `.npy`, `.npz`, and near-field training-format `.csv`.
     - If data shape is [...], it is treated as one sample and promoted to [1, ...]
     - If data shape is [N, ...], it is treated as batch.
     """
@@ -54,6 +75,8 @@ def load_input_file(path: str | Path, input_shape: tuple[int, ...] | None = None
         arr = np.load(p)
     elif p.suffix.lower() == ".npz":
         arr = _pick_npz_array(np.load(p))
+    elif p.suffix.lower() == ".csv":
+        arr = _load_nf_source_csv(p)
     else:
         raise ValueError(f"Unsupported input file: {p}")
 
