@@ -34,6 +34,43 @@ def _as_bool(cfg: dict, key: str, default: bool) -> bool:
     raise ValueError(f"Invalid boolean value for {key}: {v!r}")
 
 
+
+
+def _cfg_get(cfg: dict, key: str, default=None):
+    """Read config values from unified nested YAML with flat-key fallback."""
+    if key in cfg:
+        return cfg.get(key, default)
+
+    nested_map = {
+        "data_root": ("data", "data_root"),
+        "train_ids": ("data", "train_ids"),
+        "val_ids": ("data", "val_ids"),
+        "run_dir": ("ckpt", "run_dir"),
+        "epochs": ("train", "epochs"),
+        "batch_size": ("train", "batch_size"),
+        "resume": ("train", "resume"),
+        "lr": ("optim", "lr"),
+        "num_workers": ("train", "num_workers"),
+        "normalize_y": ("loss", "normalize_y"),
+        "norm_max_batches": ("loss", "norm_max_batches"),
+        "norm_eps": ("loss", "norm_eps"),
+        "auto_channel_weight": ("loss", "auto_channel_weight"),
+        "auto_weight_max_batches": ("loss", "auto_weight_max_batches"),
+        "e_weight_multiplier": ("loss", "e_weight_multiplier"),
+        "h_weight_multiplier": ("loss", "h_weight_multiplier"),
+    }
+
+    path = nested_map.get(key)
+    if not path:
+        return default
+
+    cur = cfg
+    for p in path:
+        if not isinstance(cur, dict) or p not in cur:
+            return default
+        cur = cur[p]
+    return cur
+
 def build_channel_weights(
     dl_tr: DataLoader,
     device: torch.device,
@@ -164,30 +201,30 @@ def main():
     if args.config:
         cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
 
-    data_root = args.data_root or cfg.get("data_root")
-    train_ids = args.train_ids or cfg.get("train_ids")
-    val_ids = args.val_ids or cfg.get("val_ids")
-    run_dir_str = args.run_dir or cfg.get("run_dir", "runs/forward_baseline")
-    epochs = args.epochs if args.epochs is not None else _as_int(cfg, "epochs", 50)
-    batch_size = args.batch_size if args.batch_size is not None else _as_int(cfg, "batch_size", 16)
-    lr = args.lr if args.lr is not None else _as_float(cfg, "lr", 1e-3)
+    data_root = args.data_root or _cfg_get(cfg, "data_root")
+    train_ids = args.train_ids or _cfg_get(cfg, "train_ids")
+    val_ids = args.val_ids or _cfg_get(cfg, "val_ids")
+    run_dir_str = args.run_dir or _cfg_get(cfg, "run_dir", "runs/forward_baseline")
+    epochs = args.epochs if args.epochs is not None else int(_cfg_get(cfg, "epochs", 50))
+    batch_size = args.batch_size if args.batch_size is not None else int(_cfg_get(cfg, "batch_size", 16))
+    lr = args.lr if args.lr is not None else float(_cfg_get(cfg, "lr", 1e-3))
     seed = args.seed if args.seed is not None else _as_int(cfg, "seed", 42)
     auto_weight_max_batches = (
         args.auto_weight_max_batches
         if args.auto_weight_max_batches is not None
-        else _as_int(cfg, "auto_weight_max_batches", 64)
+        else int(_cfg_get(cfg, "auto_weight_max_batches", 64))
     )
     e_weight_multiplier = (
-        args.e_weight_multiplier if args.e_weight_multiplier is not None else _as_float(cfg, "e_weight_multiplier", 1.0)
+        args.e_weight_multiplier if args.e_weight_multiplier is not None else float(_cfg_get(cfg, "e_weight_multiplier", 1.0))
     )
     h_weight_multiplier = (
-        args.h_weight_multiplier if args.h_weight_multiplier is not None else _as_float(cfg, "h_weight_multiplier", 1.0)
+        args.h_weight_multiplier if args.h_weight_multiplier is not None else float(_cfg_get(cfg, "h_weight_multiplier", 1.0))
     )
-    norm_max_batches = args.norm_max_batches if args.norm_max_batches is not None else _as_int(cfg, "norm_max_batches", 64)
-    norm_eps = args.norm_eps if args.norm_eps is not None else _as_float(cfg, "norm_eps", 1e-6)
-    normalize_y = args.normalize_y or _as_bool(cfg, "normalize_y", False)
-    auto_channel_weight = args.auto_channel_weight or _as_bool(cfg, "auto_channel_weight", False)
-    resume = args.resume or _as_bool(cfg, "resume", False)
+    norm_max_batches = args.norm_max_batches if args.norm_max_batches is not None else int(_cfg_get(cfg, "norm_max_batches", 64))
+    norm_eps = args.norm_eps if args.norm_eps is not None else float(_cfg_get(cfg, "norm_eps", 1e-6))
+    normalize_y = args.normalize_y or _as_bool({"normalize_y": _cfg_get(cfg, "normalize_y", False)}, "normalize_y", False)
+    auto_channel_weight = args.auto_channel_weight or _as_bool({"auto_channel_weight": _cfg_get(cfg, "auto_channel_weight", False)}, "auto_channel_weight", False)
+    resume = args.resume or _as_bool({"resume": _cfg_get(cfg, "resume", False)}, "resume", False)
 
     missing = [k for k, v in (("data_root", data_root), ("train_ids", train_ids), ("val_ids", val_ids)) if not v]
     if missing:
@@ -205,8 +242,9 @@ def main():
 
     ds_tr = ForwardDataset(data_root, train_ids)
     ds_va = ForwardDataset(data_root, val_ids)
-    dl_tr = DataLoader(ds_tr, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    dl_va = DataLoader(ds_va, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    num_workers = int(_cfg_get(cfg, "num_workers", 4))
+    dl_tr = DataLoader(ds_tr, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    dl_va = DataLoader(ds_va, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
 
     model = ForwardUNetLite(cin=4, cout=12).to(device)
 

@@ -135,27 +135,45 @@ python -m emfm.tasks.forward.train --config configs/forward/forward_train.yaml
 `configs/forward/forward_train.yaml` 示例：
 
 ```yaml
-data_root: data/em
-train_ids: data/splits/train_ids.txt
-val_ids: data/splits/val_ids.txt
-run_dir: runs/forward_norm
-
-epochs: 50
-batch_size: 16
-lr: 1.0e-3
 seed: 42
+device: auto
 
-normalize_y: true
-norm_max_batches: 128
-norm_eps: 1.0e-6
+data:
+  name: em_forward
+  data_root: data/em
+  train_ids: data/splits/train_ids.txt
+  val_ids: data/splits/val_ids.txt
 
-# 可选兼容旧方案
-auto_channel_weight: false
-auto_weight_max_batches: 64
-e_weight_multiplier: 1.0
-h_weight_multiplier: 1.0
+model:
+  name: forward_unet_lite
+  in_ch: 4
+  out_ch: 12
 
-resume: false
+train:
+  epochs: 50
+  batch_size: 16
+  num_workers: 4
+  resume: false
+
+optim:
+  name: adamw
+  lr: 1.0e-3
+  weight_decay: 0.0
+
+loss:
+  name: weighted_mse
+  normalize_y: true
+  norm_max_batches: 128
+  norm_eps: 1.0e-6
+
+  # 可选兼容旧方案
+  auto_channel_weight: false
+  auto_weight_max_batches: 64
+  e_weight_multiplier: 1.0
+  h_weight_multiplier: 1.0
+
+ckpt:
+  run_dir: runs/forward_norm
 ```
 
 参数说明：
