@@ -12,6 +12,24 @@ class ForwardSample:
     y: torch.Tensor
     meta: dict
 
+
+def collate_forward_samples(batch: list[ForwardSample]) -> ForwardSample:
+    """Collate ForwardSample batches for torch DataLoader.
+
+    PyTorch default collate may reject custom dataclass objects depending on
+    version. Keeping this explicit ensures both outer and inner trainers can
+    always build mini-batches from ``ForwardDataset`` safely.
+    """
+    if not batch:
+        raise ValueError("Empty batch is not supported")
+
+    x = torch.stack([sample.x for sample in batch], dim=0)
+    y = torch.stack([sample.y for sample in batch], dim=0)
+
+    # Keep per-sample metadata as a plain list to avoid lossy merging.
+    meta = [sample.meta for sample in batch]
+    return ForwardSample(x=x, y=y, meta={"items": meta})
+
 class ForwardDataset(Dataset):
     def __init__(self, root: str | Path, ids: list[str]):
         self.root = Path(root)

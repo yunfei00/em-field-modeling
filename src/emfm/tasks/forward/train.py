@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader
 import yaml
 from emfm.utils.seed import set_seed
-from emfm.data.dataset import ForwardDataset
+from emfm.data.dataset import ForwardDataset, collate_forward_samples
 from emfm.models.forward_unet import ForwardUNetLite
 from emfm.tasks.forward.losses import WeightedMSELoss
 from emfm.tasks.forward.metrics import rmse_per_channel
@@ -287,8 +287,22 @@ def main():
     ds_tr = ForwardDataset(data_root, train_ids)
     ds_va = ForwardDataset(data_root, val_ids)
     num_workers = int(_cfg_get(cfg, "num_workers", 4))
-    dl_tr = DataLoader(ds_tr, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
-    dl_va = DataLoader(ds_va, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+    dl_tr = DataLoader(
+        ds_tr,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+        collate_fn=collate_forward_samples,
+    )
+    dl_va = DataLoader(
+        ds_va,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+        collate_fn=collate_forward_samples,
+    )
 
     model = ForwardUNetLite(cin=4, cout=12).to(device)
 

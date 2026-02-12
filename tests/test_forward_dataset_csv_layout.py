@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from emfm.data.dataset import ForwardDataset
+from emfm.data.dataset import ForwardDataset, collate_forward_samples
 
 
 def _write_source_h_csv(path: Path):
@@ -65,3 +65,21 @@ def test_forward_dataset_prefers_npz_when_both_exist(tmp_path: Path):
 
     assert float(sample.x.sum()) == 0.0
     assert float(sample.y.sum()) > 0.0
+
+
+def test_collate_forward_samples_builds_tensor_batch(tmp_path: Path):
+    sid1 = "000003"
+    sid2 = "000004"
+
+    for sid in (sid1, sid2):
+        x = np.zeros((4, 11, 11), dtype=np.float32)
+        y = np.ones((12, 51, 51), dtype=np.float32)
+        np.savez(tmp_path / f"{sid}.npz", x=x, y=y)
+
+    ds = ForwardDataset(tmp_path, [sid1, sid2])
+    batch = collate_forward_samples([ds[0], ds[1]])
+
+    assert tuple(batch.x.shape) == (2, 4, 11, 11)
+    assert tuple(batch.y.shape) == (2, 12, 51, 51)
+    assert "items" in batch.meta
+    assert len(batch.meta["items"]) == 2
