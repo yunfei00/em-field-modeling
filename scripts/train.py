@@ -71,13 +71,18 @@ def main():
     ap.add_argument("--run_id", default=None, help="run id under runs/<exp_name>/<run_id>/ (default: timestamp)")
 
     # resume options
-    ap.add_argument("--resume", action="store_true", help="resume from runs/<exp_name>/<run_id>/last.pth")
-    ap.add_argument("--resume_run_id", default=None, help="resume from runs/<exp_name>/<resume_run_id>/last.pth")
-    ap.add_argument("--resume_from", default=None, help="resume from a checkpoint path, e.g. runs/x/y/last.pth")
+    ap.add_argument("--resume", action="store_true", help="resume from runs/<exp_name>/<run_id>/best.pth")
+    ap.add_argument("--resume_run_id", default=None, help="resume from runs/<exp_name>/<resume_run_id>/best.pth")
+    ap.add_argument("--resume_from", default=None, help="resume from a checkpoint path, e.g. runs/x/y/best.pth")
     ap.add_argument(
         "--resume_best",
         action="store_true",
-        help="when using --resume/--resume_run_id, load best.pth instead of last.pth",
+        help="kept for compatibility; --resume now defaults to best.pth",
+    )
+    ap.add_argument(
+        "--resume_last",
+        action="store_true",
+        help="when using --resume/--resume_run_id, load last.pth instead of best.pth",
     )
 
     # AMP overrides (optional)
@@ -110,6 +115,8 @@ def main():
     cfg.setdefault("amp", {})
     if args.amp and args.no_amp:
         raise SystemExit("Cannot set both --amp and --no-amp")
+    if args.resume_last and args.resume_best:
+        raise SystemExit("Cannot set both --resume_last and --resume_best")
     if args.amp:
         cfg["amp"]["enabled"] = True
     if args.no_amp:
@@ -139,7 +146,8 @@ def main():
     ckpt_path = None
 
     # Priority: resume_from > resume_run_id > resume flag
-    resume_ckpt_name = "best.pth" if args.resume_best else "last.pth"
+    # Default resume target is best.pth. Keep --resume_best as a compatibility flag.
+    resume_ckpt_name = "last.pth" if args.resume_last else "best.pth"
     if args.resume_from:
         ckpt_path = args.resume_from
     elif args.resume_run_id:
