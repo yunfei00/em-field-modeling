@@ -1,4 +1,4 @@
-from emfm.tasks.forward.train import _cfg_get, parse_ids, resolve_resume_ckpt
+from emfm.tasks.forward.train import _cfg_get, parse_ids, resolve_resume_ckpt, resolve_run_dir
 
 
 def test_forward_cfg_nested_layout_preferred():
@@ -91,3 +91,25 @@ def test_resolve_resume_ckpt_falls_back_to_inner_layout(tmp_path):
     inner.write_bytes(b"y")
 
     assert resolve_resume_ckpt(run_dir) == inner
+
+
+def test_resolve_run_dir_supports_exp_name_run_id():
+    resolved = resolve_run_dir(
+        run_dir=None,
+        ckpt_dir="runs",
+        exp_name="em_forward",
+        run_id="main",
+    )
+
+    assert resolved == "runs/em_forward/main"
+
+
+def test_resolve_run_dir_prefers_explicit_run_dir():
+    resolved = resolve_run_dir(
+        run_dir="runs/custom/path",
+        ckpt_dir="runs",
+        exp_name="em_forward",
+        run_id="main",
+    )
+
+    assert resolved == "runs/custom/path"
