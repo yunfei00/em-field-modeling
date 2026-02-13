@@ -73,7 +73,7 @@ def test_parse_ids_supports_csv_with_id_column(tmp_path):
     assert parse_ids(str(split_csv)) == ["000001", "000002"]
 
 
-def test_resolve_resume_ckpt_prefers_inner_layout(tmp_path):
+def test_resolve_resume_ckpt_prefers_outer_layout(tmp_path):
     run_dir = tmp_path / "run"
     inner = run_dir / "checkpoints" / "last.pth"
     outer = run_dir / "last.pth"
@@ -81,13 +81,13 @@ def test_resolve_resume_ckpt_prefers_inner_layout(tmp_path):
     inner.write_bytes(b"x")
     outer.write_bytes(b"y")
 
-    assert resolve_resume_ckpt(run_dir) == inner
-
-
-def test_resolve_resume_ckpt_falls_back_to_outer_layout(tmp_path):
-    run_dir = tmp_path / "run"
-    outer = run_dir / "last.pth"
-    run_dir.mkdir(parents=True)
-    outer.write_bytes(b"y")
-
     assert resolve_resume_ckpt(run_dir) == outer
+
+
+def test_resolve_resume_ckpt_falls_back_to_inner_layout(tmp_path):
+    run_dir = tmp_path / "run"
+    inner = run_dir / "checkpoints" / "last.pth"
+    inner.parent.mkdir(parents=True)
+    inner.write_bytes(b"y")
+
+    assert resolve_resume_ckpt(run_dir) == inner
