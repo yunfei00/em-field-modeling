@@ -259,3 +259,37 @@ ckpt:
 - `artifacts/y_norm_stats.json`：保存归一化统计量，便于复现实验。
 
 兼容保留旧方案：`--auto_channel_weight`（含 `--h_weight_multiplier` / `--e_weight_multiplier`）。
+
+
+### 细节还不够好时的实战调参顺序（推荐）
+
+如果你感觉“整体轮廓对了，但局部细节发糊/偏差明显”，建议按下面顺序做（每次只改 1~2 个因素，方便定位）：
+
+1. **先拉长训练并降低后期学习率**
+   - 把 `train.epochs` 从 `50` 提到 `100~200`；
+   - 把 `optim.lr` 从 `1e-3` 降到 `3e-4` 或 `1e-4`（尤其在已基本收敛后做微调）。
+
+2. **提高 H 组损失权重（若 H 细节更差）**
+   - 在保持 `balance_eh_loss: true` 的前提下，尝试：
+     - `eh_loss_e_weight: 1.0`
+     - `eh_loss_h_weight: 2.0`（再试到 `3.0`）
+
+3. **提高归一化统计稳定性**
+   - `norm_max_batches` 从 `128` 增加到 `256` 或 `512`，让通道统计更稳定。
+
+4. **减小 batch size 以改善泛化细节（视显存）**
+   - 如从 `16` 降到 `8`，常能换来更细致的局部拟合（训练噪声会略增，可配合更小 lr）。
+
+5. **固定验证集并对比可视化样本**
+   - 每次实验都保存同一批样本的推理图/误差图，避免“指标涨了但细节观感反而退化”。
+
+可直接从这个命令起步（强调细节的常用组合）：
+
+```bash
+python -m emfm.tasks.forward.train \
+  --config configs/forward/forward_train.yaml \
+  --normalize_y \
+  --balance_eh_loss \
+  --eh_loss_e_weight 1.0 \
+  --eh_loss_h_weight 2.0
+```
