@@ -177,25 +177,44 @@ def parse_ids(txt: str) -> list[str]:
         return [row[0].strip() for row in reader if row and row[0].strip()]
 
 
-def save_ckpt(path: Path, model, optim, epoch: int, best_val: float):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({
+def build_ckpt_payload(
+    model,
+    optim,
+    epoch: int,
+    best_val: float,
+    *,
+    cfg: dict | None = None,
+    run_dir: str | None = None,
+) -> dict:
+    """Build a checkpoint payload compatible with unified train/eval/infer tools."""
+    return {
         "epoch": epoch,
         "best_val": best_val,
+        "best_score": best_val,
         "model": model.state_dict(),
         "optim": optim.state_dict(),
-    }, path)
+        "cfg": cfg,
+        "run_dir": run_dir,
+    }
+
+
+def save_ckpt(path: Path, payload: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, path)
 
 
 def load_ckpt(path: Path, model, optim):
-    """
-    Load checkpoint with compatibility for both:
-    - inner forward trainer format (`best_val`)
-    - outer unified trainer format (`best_score`)
-    """
+    """Load checkpoint with compatibility for forward and unified trainer formats."""
     ckpt = torch.load(path, map_location="cpu")
-    model.load_state_dict(ckpt["model"])
-    optim.load_state_dict(ckpt["optim"])
+
+    model_state = ckpt.get("model")
+    if model_state is None:
+        raise KeyError(f"Invalid checkpoint (missing 'model' key): {path}")
+    model.load_state_dict(model_state)
+
+    optim_state = ckpt.get("optim")
+    if optim_state is not None:
+        optim.load_state_dict(optim_state)
 
     epoch = int(ckpt.get("epoch", 0))
     best_val = ckpt.get("best_val")
@@ -205,13 +224,13 @@ def load_ckpt(path: Path, model, optim):
 
 
 def resolve_resume_ckpt(run_dir: Path) -> Path:
-    """Prefer inner checkpoint path, but fall back to unified trainer path."""
-    inner_last = run_dir / "checkpoints" / "last.pth"
-    if inner_last.exists():
-        return inner_last
-
+    """Prefer unified trainer path, but keep legacy inner path fallback."""
     outer_last = run_dir / "last.pth"
-    return outer_last
+    if outer_last.exists():
+        return outer_last
+
+    inner_last = run_dir / "checkpoints" / "last.pth"
+    return inner_last
 
 
 def main():
@@ -338,7 +357,8 @@ def main():
 
     start_epoch = 0
     best_val = 1e30
-    last_ckpt = run_dir / "checkpoints" / "last.pth"
+    last_ckpt = run_dir / "last.pth"
+    legacy_last_ckpt = run_dir / "checkpoints" / "last.pth"
     if resume:
         resume_ckpt = resolve_resume_ckpt(run_dir)
         if resume_ckpt.exists():
@@ -446,10 +466,23 @@ def main():
         va_loss /= max(1, len(dl_va))
 
         is_best = va_loss < best_val
+        ckpt_payload = build_ckpt_payload(
+            model,
+            optim,
+            epoch,
+            best_val,
+            cfg=cfg,
+            run_dir=str(run_dir),
+        )
         if is_best:
             best_val = va_loss
-            save_ckpt(run_dir / "checkpoints" / "best.pth", model, optim, epoch, best_val)
-        save_ckpt(last_ckpt, model, optim, epoch, best_val)
+            ckpt_payload["best_val"] = best_val
+            ckpt_payload["best_score"] = best_val
+            save_ckpt(run_dir / "best.pth", ckpt_payload)
+            save_ckpt(run_dir / "checkpoints" / "best.pth", ckpt_payload)
+
+        save_ckpt(last_ckpt, ckpt_payload)
+        save_ckpt(legacy_last_ckpt, ckpt_payload)
 
         log({
             "epoch": epoch,
