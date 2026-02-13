@@ -293,3 +293,42 @@ python -m emfm.tasks.forward.train \
   --eh_loss_e_weight 1.0 \
   --eh_loss_h_weight 2.0
 ```
+
+
+### 50w 数据的 train/val/test 切分模板（推荐）
+
+目标：既保证不同训练阶段结果可比，又保证最终评估稳定。
+
+建议把数据分成三部分：
+
+- `train_pool`：490,000（训练池）
+- `val_fixed`：1,000（固定验证集，跨阶段对比用）
+- `test_final`：9,000（最终测试集，仅在里程碑模型上评估）
+
+为什么这样分：
+
+- `val_fixed` 固定为 1k，方便横向比较 `1w -> 5w -> 10w -> 20w -> 50w` 各阶段，不会因验证集变化而“看起来涨跌”。
+- `test_final` 与验证集隔离，避免长期调参“磨到验证集”导致乐观偏差。
+
+分阶段训练可直接从 `train_pool` 取前 N（或按固定随机种子采样 N）：
+
+- Stage-1: `train_pool` 取 10,000
+- Stage-2: `train_pool` 取 50,000
+- Stage-3: `train_pool` 取 100,000
+- Stage-4: `train_pool` 取 200,000
+- Stage-5: `train_pool` 取 490,000
+
+评估建议：
+
+- 每个 stage 都在同一份 `val_fixed` 上打分（主比较指标）。
+- 只在关键里程碑（如 Stage-3/5 最优模型）上跑 `test_final`，防止过于频繁查看测试集。
+
+落地细节：
+
+1. 切分前先去重（至少按样本 ID / 参数组合去重）。
+2. 若样本存在“场景族”（例如同几何参数的小扰动），按组切分，避免泄漏。
+3. 固定随机种子并保存三份 ID 文件：
+   - `data/splits/train_pool_ids.txt`
+   - `data/splits/val_fixed_ids.txt`
+   - `data/splits/test_final_ids.txt`
+4. 每次实验额外保存同一批可视化样本，保证“指标与观感”同步对比。
