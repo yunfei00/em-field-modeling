@@ -47,6 +47,9 @@ def _cfg_get(cfg: dict, key: str, default=None):
         "train_ids": (("data", "train_split"), ("data", "train_ids")),
         "val_ids": (("data", "val_split"), ("data", "val_ids")),
         "run_dir": ("ckpt", "run_dir"),
+        "ckpt_dir": ("ckpt", "dir"),
+        "exp_name": ("ckpt", "exp_name"),
+        "run_id": ("ckpt", "run_id"),
         "epochs": ("train", "epochs"),
         "batch_size": ("train", "batch_size"),
         "resume": ("train", "resume"),
@@ -79,6 +82,25 @@ def _cfg_get(cfg: dict, key: str, default=None):
         if not missing:
             return cur
     return default
+
+
+def resolve_run_dir(
+    *,
+    run_dir: str | None,
+    ckpt_dir: str | None,
+    exp_name: str | None,
+    run_id: str | None,
+    default_run_dir: str = "runs/forward_baseline",
+) -> str:
+    """Resolve forward task run_dir with unified ckpt dir/exp_name/run_id compatibility."""
+    if run_dir:
+        return run_dir
+
+    if exp_name and run_id:
+        base_dir = ckpt_dir or "runs"
+        return str(Path(base_dir) / exp_name / run_id)
+
+    return default_run_dir
 
 def build_channel_weights(
     dl_tr: DataLoader,
@@ -243,6 +265,9 @@ def main():
     ap.add_argument("--val_ids", default=None)
     ap.add_argument("--val_split", default=None)
     ap.add_argument("--run_dir", default=None)
+    ap.add_argument("--ckpt_dir", default=None, help="base checkpoint directory, used with --exp_name/--run_id")
+    ap.add_argument("--exp_name", default=None, help="experiment name under ckpt dir")
+    ap.add_argument("--run_id", default=None, help="run id under ckpt dir/exp_name")
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--batch_size", type=int, default=None)
     ap.add_argument("--lr", type=float, default=None)
@@ -268,7 +293,16 @@ def main():
     data_root = args.data_root or args.root or _cfg_get(cfg, "data_root")
     train_ids = args.train_ids or args.train_split or _cfg_get(cfg, "train_ids")
     val_ids = args.val_ids or args.val_split or _cfg_get(cfg, "val_ids")
-    run_dir_str = args.run_dir or _cfg_get(cfg, "run_dir", "runs/forward_baseline")
+    ckpt_dir = args.ckpt_dir or _cfg_get(cfg, "ckpt_dir")
+    exp_name = args.exp_name or _cfg_get(cfg, "exp_name")
+    run_id = args.run_id or _cfg_get(cfg, "run_id")
+    run_dir_str = resolve_run_dir(
+        run_dir=args.run_dir or _cfg_get(cfg, "run_dir"),
+        ckpt_dir=ckpt_dir,
+        exp_name=exp_name,
+        run_id=run_id,
+        default_run_dir="runs/forward_baseline",
+    )
     epochs = args.epochs if args.epochs is not None else int(_cfg_get(cfg, "epochs", 50))
     batch_size = args.batch_size if args.batch_size is not None else int(_cfg_get(cfg, "batch_size", 16))
     lr = args.lr if args.lr is not None else float(_cfg_get(cfg, "lr", 1e-3))
@@ -381,6 +415,9 @@ def main():
         "train_ids": train_ids,
         "val_ids": val_ids,
         "run_dir": run_dir_str,
+        "ckpt_dir": ckpt_dir,
+        "exp_name": exp_name,
+        "run_id": run_id,
         "epochs": epochs,
         "batch_size": batch_size,
         "lr": lr,
