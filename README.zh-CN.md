@@ -113,6 +113,41 @@ runs/<exp>/<run_id>/
 
 ## EM 正向任务：E/H 量级不平衡建议
 
+
+### 评估与推理（forward 专用）
+
+新增两个专用入口，便于直接看当前模型效果：
+
+```bash
+# 评估（输出 val_mse、12 通道 RMSE、E/H 均值 RMSE）
+python -m emfm.tasks.forward.eval \
+  --config configs/forward/forward_train.yaml \
+  --ckpt runs/forward_norm/best.pth
+
+# 推理（单文件或目录；可导出 tensor 或 target_E/H.csv）
+python -m emfm.tasks.forward.infer \
+  --ckpt runs/forward_norm/best.pth \
+  --input <source_H.csv|.npy|.npz|folder> \
+  --out <out_path_or_dir> \
+  --out_format tensor
+```
+
+
+### 训练入口选择（`scripts/train.py` vs `emfm.tasks.forward.train`）
+
+如果你的目标是 **EM 正向任务（输入 source H，输出 12 通道 E/H 场）**，推荐使用
+`python -m emfm.tasks.forward.train`，而不是通用入口 `scripts/train.py`。
+
+原因：
+
+- `scripts/train.py` 走的是通用 `ttt.engine`，训练损失是原始 `mean((pred - y)^2)`，不会对 E/H 的通道量级差做显式处理。
+- `emfm.tasks.forward.train` 支持 `--normalize_y`：先估计目标通道 `mean/std`，在归一化空间计算 loss，通常能显著缓解 “E 很准、H 偏差较大” 的问题。
+
+经验建议：
+
+- 若你以 **整体场重建质量**（尤其关注 H 不被 E 的大幅值淹没）为目标，优先选 `emfm.tasks.forward.train --normalize_y`。
+- 若只是做通用框架连通性验证/CI 冒烟测试，`scripts/train.py` 更轻量。
+
 当电场通道量级远大于磁场通道时，直接用原始 MSE 往往会更偏向优化 `E`，导致 `H` 拟合不足。
 
 建议优先使用 `src/emfm/tasks/forward/train.py` 的目标归一化（请用 `python -m` 方式执行，避免直接运行文件时相对导入问题）：
