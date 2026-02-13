@@ -21,6 +21,8 @@ runs/demo/<run_id>/
 
 ## 常用脚本
 
+- Loss 可视化：`scripts/plot_loss.py`
+
 - 训练：`scripts/train.py`
 - 评估：`scripts/eval.py`
 - 推理：`scripts/infer.py`
@@ -86,6 +88,37 @@ scheduler:
   t_max: 50
   eta_min: 1e-6
 ```
+
+---
+
+
+## 训练可视化（Loss 曲线）
+
+本仓库训练会默认写入 `metrics.jsonl`（通用训练在 `runs/<exp>/<run_id>/metrics.jsonl`，forward 训练在 `runs/.../artifacts/metrics.jsonl`）。
+
+可直接用脚本画曲线：
+
+```bash
+python scripts/plot_loss.py \
+  --run_dir runs/demo/<run_id> \
+  --smooth 20 \
+  --out_png runs/demo/<run_id>/artifacts/loss_curve.png \
+  --out_csv runs/demo/<run_id>/artifacts/loss_long.csv
+```
+
+多实验对比：
+
+```bash
+python scripts/plot_loss.py \
+  --run_dir runs/exp_a/<run_id_a> runs/exp_b/<run_id_b> \
+  --smooth 20 \
+  --title "Loss Compare"
+```
+
+工业建议：
+- 训练侧统一输出 JSONL（已支持），并在 CI/定时任务中自动生成 `loss_curve.png` + `loss_long.csv`。
+- 线上监控将 `val_loss`、`lr`、`best_score` 接入告警（如 3 个 epoch 不提升触发告警）。
+- 评估时固定对比窗口（如最近 5 次 run）并保留图与原始 CSV，保证可追溯。
 
 ---
 
