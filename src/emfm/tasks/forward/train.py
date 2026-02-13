@@ -8,7 +8,7 @@ import yaml
 from emfm.utils.seed import set_seed
 from emfm.data.dataset import ForwardDataset, collate_forward_samples
 from emfm.models.forward_unet import ForwardUNetLite
-from emfm.tasks.forward.losses import WeightedMSELoss
+from emfm.tasks.forward.losses import EHBalancedMSELoss, WeightedMSELoss
 from emfm.tasks.forward.metrics import rmse_per_channel
 
 
@@ -64,6 +64,9 @@ def _cfg_get(cfg: dict, key: str, default=None):
         "auto_weight_max_batches": ("loss", "auto_weight_max_batches"),
         "e_weight_multiplier": ("loss", "e_weight_multiplier"),
         "h_weight_multiplier": ("loss", "h_weight_multiplier"),
+        "balance_eh_loss": ("loss", "balance_eh_loss"),
+        "eh_loss_e_weight": ("loss", "eh_loss_e_weight"),
+        "eh_loss_h_weight": ("loss", "eh_loss_h_weight"),
     }
 
     paths = nested_map.get(key)
@@ -292,6 +295,9 @@ def main():
     ap.add_argument("--normalize_y", action="store_true")
     ap.add_argument("--norm_max_batches", type=int, default=None)
     ap.add_argument("--norm_eps", type=float, default=None)
+    ap.add_argument("--balance_eh_loss", action="store_true", help="compute loss as weighted average of E-loss and H-loss")
+    ap.add_argument("--eh_loss_e_weight", type=float, default=None)
+    ap.add_argument("--eh_loss_h_weight", type=float, default=None)
     args = ap.parse_args()
 
     cfg = {}
@@ -329,6 +335,9 @@ def main():
     norm_max_batches = args.norm_max_batches if args.norm_max_batches is not None else int(_cfg_get(cfg, "norm_max_batches", 64))
     norm_eps = args.norm_eps if args.norm_eps is not None else float(_cfg_get(cfg, "norm_eps", 1e-6))
     normalize_y = args.normalize_y or _as_bool({"normalize_y": _cfg_get(cfg, "normalize_y", False)}, "normalize_y", False)
+    balance_eh_loss = args.balance_eh_loss or _as_bool({"balance_eh_loss": _cfg_get(cfg, "balance_eh_loss", True)}, "balance_eh_loss", True)
+    eh_loss_e_weight = args.eh_loss_e_weight if args.eh_loss_e_weight is not None else float(_cfg_get(cfg, "eh_loss_e_weight", 1.0))
+    eh_loss_h_weight = args.eh_loss_h_weight if args.eh_loss_h_weight is not None else float(_cfg_get(cfg, "eh_loss_h_weight", 1.0))
     auto_channel_weight = args.auto_channel_weight or _as_bool({"auto_channel_weight": _cfg_get(cfg, "auto_channel_weight", False)}, "auto_channel_weight", False)
     resume = args.resume or _as_bool({"resume": _cfg_get(cfg, "resume", False)}, "resume", False)
     resume_best = args.resume_best or _as_bool({"resume_best": _cfg_get(cfg, "resume_best", False)}, "resume_best", False)
@@ -400,7 +409,14 @@ def main():
         )
         print(f"[init] auto channel weights: {channel_weights}")
 
-    loss_fn = WeightedMSELoss(weights=channel_weights)
+    if balance_eh_loss:
+        loss_fn = EHBalancedMSELoss(
+            e_weight=eh_loss_e_weight,
+            h_weight=eh_loss_h_weight,
+            weights=channel_weights,
+        )
+    else:
+        loss_fn = WeightedMSELoss(weights=channel_weights)
     optim = torch.optim.AdamW(model.parameters(), lr=lr)
 
     start_epoch = 0
@@ -452,6 +468,9 @@ def main():
         "normalize_y": normalize_y,
         "norm_max_batches": norm_max_batches,
         "norm_eps": norm_eps,
+        "balance_eh_loss": balance_eh_loss,
+        "eh_loss_e_weight": eh_loss_e_weight,
+        "eh_loss_h_weight": eh_loss_h_weight,
     }
     (run_dir / "artifacts" / "run_args.json").write_text(
         json.dumps(resolved_args, ensure_ascii=False, indent=2), encoding="utf-8"
