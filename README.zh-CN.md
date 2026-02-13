@@ -214,8 +214,12 @@ ckpt:
 参数说明：
 
 - `--normalize_y`：按通道估计训练集 `mean/std`，在归一化空间计算 loss。
+- `--balance_eh_loss`：把 loss 拆成 `E(6通道)` 与 `H(6通道)` 两组后再加权平均，避免 E 振幅更大时“天然主导”总损失。
+- `--eh_loss_e_weight` / `--eh_loss_h_weight`：E/H 组损失权重；若当前 H 偏差更大，建议从 `1.0/2.0` 或 `1.0/3.0` 开始网格搜索。
 - `--norm_max_batches`：统计量估计使用的 batch 数。
 - `--norm_eps`：方差/标准差下限，避免数值问题。
+
+推荐组合（优先）：`--normalize_y --balance_eh_loss`。
 
 产物：
 

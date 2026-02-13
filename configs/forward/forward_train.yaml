@@ -29,6 +29,11 @@ loss:
   norm_max_batches: 128
   norm_eps: 1.0e-6
 
+  # recommend: explicitly balance E/H loss contributions
+  balance_eh_loss: true
+  eh_loss_e_weight: 1.0
+  eh_loss_h_weight: 1.0
+
   # legacy optional alternative
   auto_channel_weight: false
   auto_weight_max_batches: 64
