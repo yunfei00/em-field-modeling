@@ -133,11 +133,13 @@ Each run contains:
 python scripts/train.py --config configs/default.yaml --exp_name demo --resume
 ```
 
-Resume from the **best checkpoint** and set a new learning rate:
+Resume from the best checkpoint and set a new learning rate:
 
 ```bash
-python scripts/train.py --config configs/default.yaml --exp_name demo --resume --resume_best --lr 1e-4
+python scripts/train.py --config configs/default.yaml --exp_name demo --resume --lr 1e-4
 ```
+
+If you need old behavior (resume from `last.pth`), add `--resume_last`.
 
 By default, when `--lr` is provided during resume, the optimizer state is restored from checkpoint **but LR is overwritten** by the latest config/CLI value.
 

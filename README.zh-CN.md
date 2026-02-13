@@ -31,7 +31,7 @@ runs/demo/<run_id>/
 
 ## 断点续训（重点）
 
-基础续训（默认从 `last.pth`）：
+基础续训（默认从 `best.pth`）：
 
 ```bash
 python scripts/train.py --config configs/default.yaml --exp_name demo --resume
@@ -40,8 +40,10 @@ python scripts/train.py --config configs/default.yaml --exp_name demo --resume
 从最佳模型继续训练并设置新的学习率：
 
 ```bash
-python scripts/train.py --config configs/default.yaml --exp_name demo --resume --resume_best --lr 1e-4
+python scripts/train.py --config configs/default.yaml --exp_name demo --resume --lr 1e-4
 ```
+
+如需旧行为（从 `last.pth` 续训），请加上 `--resume_last`。
 
 ### 当前行为说明
 
