@@ -53,6 +53,8 @@ def _cfg_get(cfg: dict, key: str, default=None):
         "epochs": ("train", "epochs"),
         "batch_size": ("train", "batch_size"),
         "resume": ("train", "resume"),
+        "resume_best": ("train", "resume_best"),
+        "resume_new_lr": ("train", "resume_new_lr"),
         "lr": ("optim", "lr"),
         "num_workers": ("train", "num_workers"),
         "normalize_y": ("loss", "normalize_y"),
@@ -225,7 +227,7 @@ def save_ckpt(path: Path, payload: dict):
     torch.save(payload, path)
 
 
-def load_ckpt(path: Path, model, optim):
+def load_ckpt(path: Path, model, optim, *, resume_new_lr: bool = False, target_lr: float | None = None):
     """Load checkpoint with compatibility for forward and unified trainer formats."""
     ckpt = torch.load(path, map_location="cpu")
 
@@ -237,6 +239,9 @@ def load_ckpt(path: Path, model, optim):
     optim_state = ckpt.get("optim")
     if optim_state is not None:
         optim.load_state_dict(optim_state)
+        if resume_new_lr and target_lr is not None:
+            for group in optim.param_groups:
+                group["lr"] = float(target_lr)
 
     epoch = int(ckpt.get("epoch", 0))
     best_val = ckpt.get("best_val")
@@ -245,14 +250,15 @@ def load_ckpt(path: Path, model, optim):
     return epoch, float(best_val)
 
 
-def resolve_resume_ckpt(run_dir: Path) -> Path:
+def resolve_resume_ckpt(run_dir: Path, *, resume_best: bool = False) -> Path:
     """Prefer unified trainer path, but keep legacy inner path fallback."""
-    outer_last = run_dir / "last.pth"
-    if outer_last.exists():
-        return outer_last
+    ckpt_name = "best.pth" if resume_best else "last.pth"
+    outer_ckpt = run_dir / ckpt_name
+    if outer_ckpt.exists():
+        return outer_ckpt
 
-    inner_last = run_dir / "checkpoints" / "last.pth"
-    return inner_last
+    inner_ckpt = run_dir / "checkpoints" / ckpt_name
+    return inner_ckpt
 
 
 def main():
@@ -273,6 +279,8 @@ def main():
     ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--resume_best", action="store_true", help="resume from best.pth instead of last.pth")
+    ap.add_argument("--resume_new_lr", action="store_true", help="when resuming, overwrite optimizer lr with current --lr/config")
 
     # Legacy loss re-weighting option.
     ap.add_argument("--auto_channel_weight", action="store_true")
@@ -323,6 +331,12 @@ def main():
     normalize_y = args.normalize_y or _as_bool({"normalize_y": _cfg_get(cfg, "normalize_y", False)}, "normalize_y", False)
     auto_channel_weight = args.auto_channel_weight or _as_bool({"auto_channel_weight": _cfg_get(cfg, "auto_channel_weight", False)}, "auto_channel_weight", False)
     resume = args.resume or _as_bool({"resume": _cfg_get(cfg, "resume", False)}, "resume", False)
+    resume_best = args.resume_best or _as_bool({"resume_best": _cfg_get(cfg, "resume_best", False)}, "resume_best", False)
+    resume_new_lr = args.resume_new_lr or (args.lr is not None) or _as_bool(
+        {"resume_new_lr": _cfg_get(cfg, "resume_new_lr", False)},
+        "resume_new_lr",
+        False,
+    )
 
     missing = [k for k, v in (("data_root", data_root), ("train_ids", train_ids), ("val_ids", val_ids)) if not v]
     if missing:
@@ -394,11 +408,17 @@ def main():
     last_ckpt = run_dir / "last.pth"
     legacy_last_ckpt = run_dir / "checkpoints" / "last.pth"
     if resume:
-        resume_ckpt = resolve_resume_ckpt(run_dir)
+        resume_ckpt = resolve_resume_ckpt(run_dir, resume_best=resume_best)
         if resume_ckpt.exists():
-            start_epoch, best_val = load_ckpt(resume_ckpt, model, optim)
+            start_epoch, best_val = load_ckpt(
+                resume_ckpt,
+                model,
+                optim,
+                resume_new_lr=resume_new_lr,
+                target_lr=lr,
+            )
             start_epoch += 1
-            print(f"[resume] loaded checkpoint: {resume_ckpt}")
+            print(f"[resume] loaded checkpoint: {resume_ckpt} (lr={optim.param_groups[0]['lr']:.6g})")
         else:
             print(f"[resume] checkpoint not found: {resume_ckpt} (start fresh)")
 
@@ -423,6 +443,8 @@ def main():
         "lr": lr,
         "seed": seed,
         "resume": resume,
+        "resume_best": resume_best,
+        "resume_new_lr": resume_new_lr,
         "auto_channel_weight": auto_channel_weight,
         "auto_weight_max_batches": auto_weight_max_batches,
         "e_weight_multiplier": e_weight_multiplier,
@@ -475,7 +497,7 @@ def main():
             optim.step()
             tr_loss += loss.item()
 
-            tr_bar.set_postfix({"loss": f"{(tr_loss / batch_idx):.4e}"})
+            tr_bar.set_postfix({"loss": f"{(tr_loss / batch_idx):.4e}", "lr": f"{optim.param_groups[0]['lr']:.3e}"})
 
         tr_loss /= max(1, len(dl_tr))
 
@@ -530,7 +552,10 @@ def main():
             "is_best": is_best,
         })
 
-        print(f"[E{epoch}] train={tr_loss:.6e} val={va_loss:.6e} best={best_val:.6e} best?={is_best}")
+        print(
+            f"[E{epoch}] train={tr_loss:.6e} val={va_loss:.6e} best={best_val:.6e} "
+            f"lr={optim.param_groups[0]['lr']:.6g} best?={is_best}"
+        )
 
 
 if __name__ == "__main__":
